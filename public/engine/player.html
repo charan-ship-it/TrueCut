@@ -1,0 +1,46 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Truecut player</title>
+<style>html,body{margin:0;background:#000;overflow:hidden;height:100%}#wrap{position:absolute;left:0;top:0;transform-origin:0 0}#err{position:fixed;inset:0;color:#f88;font:14px monospace;padding:20px;display:none;white-space:pre-wrap}</style>
+</head><body><div id="wrap"></div><div id="err"></div>
+<script type="module">
+import { mount as mountAd } from './runtime.js';
+import { mount as mountTalk } from './talk.js';
+const q = new URLSearchParams(location.search);
+const format = q.get('format') || '4x5';
+const RENDER = q.get('render') === '1';
+const wrap = document.getElementById('wrap');
+let inst = null, comp = null, audio = null, media = null, playing = false, t0 = 0, tStart = 0, cur = 0;
+function fit() { if (!inst || RENDER) return; const s = Math.min(innerWidth / inst.width, innerHeight / inst.height); wrap.style.transform = `translate(${(innerWidth - inst.width * s) / 2}px,${(innerHeight - inst.height * s) / 2}px) scale(${s})`; }
+function show(err) { const e = document.getElementById('err'); e.style.display = 'block'; e.textContent = String(err && err.stack || err); }
+async function load(c) {
+  try {
+    comp = c; const m = c && c.mode === 'talk' ? mountTalk : mountAd; inst = m(wrap, c, { format, assetBase: q.get('assetBase') || '', fontBase: './fonts/', render: RENDER });
+    if (RENDER && c && c.mode === 'talk') { document.documentElement.style.background = 'transparent'; document.body.style.background = 'transparent'; }
+    media = inst.media || null; if (media) { media.addEventListener('ended', () => { playing = false; parent.postMessage({ type: 'nm:ended' }, '*'); }); }
+    window.DUR = inst.duration; window.render = (t) => inst.render(t); window.LAYOUT = inst.layout;
+    window.ready = inst.ready; await inst.ready; inst.render(cur); fit();
+    parent.postMessage({ type: 'nm:ready', duration: inst.duration, layout: { scenes: inst.layout.scenes.map(s => ({ id: s.id, start: s.start, end: s.end, type: s.type })) } }, '*');
+  } catch (e) { show(e); }
+}
+window.addEventListener('resize', fit);
+function tick() {
+  if (!playing || !inst) return;
+  const t = media && !media.paused ? media.currentTime : audio && !audio.paused ? audio.currentTime : t0 + (performance.now() - tStart) / 1000;
+  cur = Math.min(t, inst.duration); inst.render(cur);
+  parent.postMessage({ type: 'nm:time', t: cur }, '*');
+  if (cur >= inst.duration) { playing = false; if (audio) audio.pause(); parent.postMessage({ type: 'nm:ended' }, '*'); return; }
+  requestAnimationFrame(tick);
+}
+window.addEventListener('message', (ev) => {
+  const m = ev.data || {};
+  if (m.type === 'nm:comp') load(m.comp);
+  if (m.type === 'nm:audio') { audio = m.url && !media ? new Audio(m.url) : null; }
+  if (m.type === 'nm:seek' && inst) { cur = m.t; inst.render(cur); if (media) media.currentTime = cur; if (audio) audio.currentTime = cur; if (playing) { t0 = cur; tStart = performance.now(); } }
+  if (m.type === 'nm:play' && inst) { if (cur >= inst.duration - 0.05) cur = 0; playing = true; t0 = cur; tStart = performance.now(); if (media) { media.currentTime = cur; media.play().catch(() => {}); } else if (audio) { audio.currentTime = cur; audio.play().catch(() => {}); } requestAnimationFrame(tick); }
+  if (m.type === 'nm:pause') { playing = false; if (media) media.pause(); if (audio) audio.pause(); }
+});
+if (window.__COMP__) load(window.__COMP__);
+else if (q.get('src')) fetch(q.get('src')).then(r => r.json()).then(load).catch(show);
+else parent.postMessage({ type: 'nm:want' }, '*');
+</script></body></html>

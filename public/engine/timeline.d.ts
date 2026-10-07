@@ -1,0 +1,10 @@
+export const BEAT: number;
+export const PRE: number;
+export const VO_LEAD: number;
+export const FORMATS: Record<'4x5' | '9x16' | '1x1', { w: number; h: number; label: string }>;
+export const SCENE_TYPES: Record<string, { min: number; max: number; label: string; desc: string }>;
+export function snap(x: number, beat?: number): number;
+export function beatOf(comp: any): number;
+export function estimateSpeech(text: string): number;
+export function localOffset(s: any, revealIndex: number): number;
+export function layout(comp: any): { scenes: any[]; duration: number; revealIndex: number; revealAt: number | null; captions: { scene: number; start: number; end: number; words: { w: string; t: number }[] }[]; cues: any[]; beat: number };

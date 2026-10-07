@@ -1,0 +1,11 @@
+node_modules
+.next*
+data/
+.env
+.env.*
+!.env.example
+*.log
+tsconfig.tsbuildinfo
+qa-out/
+scripts/fixtures/
+.DS_Store

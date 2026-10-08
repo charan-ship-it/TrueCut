@@ -1,0 +1,40 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: truecut, POSTGRES_PASSWORD: truecut, POSTGRES_DB: truecut_test }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U truecut" --health-interval 3s --health-retries 20
+    env:
+      TRUECUT_TEST_DATABASE_URL: postgresql://truecut:truecut@localhost:5432/truecut_test
+      TRUECUT_TEST_S3_ENDPOINT: http://localhost:9000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - name: Start a test bucket (MinIO)
+        run: docker run -d --name minio -p 9000:9000 -e MINIO_ROOT_USER=test -e MINIO_ROOT_PASSWORD=testtesttest minio/minio server /data
+      - run: npm ci --no-audit --no-fund
+        env: { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1" }
+      - run: npm run typecheck
+      - name: Tests (Postgres + bucket)
+        run: npm test
+        env: { TRUECUT_TEST_S3_KEY: test, TRUECUT_TEST_S3_SECRET: testtesttest }
+      - run: npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image (web + worker)
+        run: docker build -t truecut:ci .
+      - name: Smoke-test the image
+        run: docker run --rm truecut:ci node -e "require('/app/node_modules/playwright-core'); console.log('ok')"

@@ -5,10 +5,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { projectPath, mimeOf, isMediaFile, storageDriver, getObject, signedUrl } from '@truecut/storage';
+import { requireProject, HttpError } from '@/lib/auth';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request, { params }: { params: { id: string; path: string[] } }) {
-  const rel = params.path.join("/");
+  try { await requireProject(params.id); } catch (e) { const st = e instanceof HttpError ? e.status : 404; return new Response(st === 401 ? 'Please sign in' : 'Not found', { status: st }); }
+  const rel = params.path.join('/');
   let f: string;
   try { f = projectPath(params.id, rel); } catch { return new Response('Bad path', { status: 400 }); }
   const type = mimeOf(f);

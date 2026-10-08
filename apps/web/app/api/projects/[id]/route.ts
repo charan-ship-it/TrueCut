@@ -1,4 +1,4 @@
-import { ok, route } from '@/lib/http';
+import { ok, projectRoute } from '@/lib/http';
 import { deleteProject, getProject, updateProject } from '@truecut/db';
 import { removeProject } from '@truecut/storage';
 import { checkScenes } from '@truecut/shared/facts';
@@ -8,8 +8,8 @@ export const dynamic = 'force-dynamic';
 type C = { params: { id: string } };
 const EDITABLE = ['name', 'intake', 'facts', 'questions', 'visuals', 'scenes', 'music', 'brief', 'stage', 'style', 'favorite', 'kind', 'angleId', 'talk', 'cast'] as const;
 const view = async (id: string) => { const p = await getProject(id); p.agentBusy = await isBusy(id); return { project: p, issues: checkScenes(p), jobs: (await projectJobs(id)).slice(0, 12) }; };
-export const GET = route(async (_r: Request, { params }: C) => ok(await view(params.id)));
-export const PATCH = route(async (req: Request, { params }: C) => {
+export const GET = projectRoute(async (_r: Request, { params }: C) => ok(await view(params.id)));
+export const PATCH = projectRoute(async (req: Request, { params }: C) => {
   const b = await req.json();
   await updateProject(params.id, (p) => {
     const next: any = { ...p };
@@ -24,4 +24,4 @@ export const PATCH = route(async (req: Request, { params }: C) => {
   });
   return ok(await view(params.id));
 });
-export const DELETE = route(async (_r: Request, { params }: C) => { await deleteProject(params.id); await removeProject(params.id); return ok({ deleted: true }); });
+export const DELETE = projectRoute(async (_r: Request, { params }: C) => { await deleteProject(params.id); await removeProject(params.id); return ok({ deleted: true }); });

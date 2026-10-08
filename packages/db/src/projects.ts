@@ -3,7 +3,7 @@
 import { desc, eq } from 'drizzle-orm';
 import { Project } from '@truecut/shared/types';
 import { db } from './client';
-import { projects } from './schema';
+import { projects, users } from './schema';
 import { newId } from './ids';
 import { DEFAULT_WORKSPACE_ID, ensureDefaultWorkspace } from './workspaces';
 
@@ -55,8 +55,8 @@ export async function updateProject(id: string, fn: (p: Project) => void | Proje
 }
 
 export async function listProjects(workspaceId = DEFAULT_WORKSPACE_ID) {
-  return db().select({ id: projects.id, name: projects.name, kind: projects.kind, stage: projects.stage, summary: projects.summary, createdBy: projects.createdBy, updatedAt: projects.updatedAt, createdAt: projects.createdAt })
-    .from(projects).where(eq(projects.workspaceId, workspaceId)).orderBy(desc(projects.updatedAt)).limit(500);
+  return db().select({ id: projects.id, name: projects.name, kind: projects.kind, stage: projects.stage, summary: projects.summary, createdBy: projects.createdBy, creatorName: users.name, creatorImage: users.image, updatedAt: projects.updatedAt, createdAt: projects.createdAt })
+    .from(projects).leftJoin(users, eq(users.id, projects.createdBy)).where(eq(projects.workspaceId, workspaceId)).orderBy(desc(projects.updatedAt)).limit(500);
 }
 
 export async function deleteProject(id: string) { await db().delete(projects).where(eq(projects.id, id)); }

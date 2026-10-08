@@ -5,19 +5,29 @@ import { usePathname, useRouter } from 'next/navigation';
 import { api, fileUrl, timeAgo } from './api';
 import { I, TrueCutMark } from './icons';
 import { DIRECTIONS } from '@truecut/engine/styles.js';
+import { signOut } from 'next-auth/react';
 
-type Row = { id: string; name: string; stage: string; updatedAt: string; scenes: number; renders: number; thumb: string | null; video: string | null; style: string; favorite: boolean; busy: boolean; length: number; last: string };
+type Row = { id: string; name: string; stage: string; updatedAt: string; scenes: number; renders: number; thumb: string | null; video: string | null; style: string; favorite: boolean; busy: boolean; length: number; last: string; creator?: { name: string; image?: string | null } | null };
+type Me = { user: { id: string; name: string; email: string; image?: string | null }; auth: boolean };
 const Shared = createContext<{ projects: Row[] | null; refresh: () => void; health: any }>({ projects: null, refresh: () => {}, health: null });
 export const useShared = () => useContext(Shared);
 
 export default function Shell({ children }: { children: React.ReactNode }) {
+  const path = usePathname();
+  if (path === '/signin') return <>{children}</>;
+  return <App>{children}</App>;
+}
+
+function App({ children }: { children: React.ReactNode }) {
   const path = usePathname(); const r = useRouter();
+  const [me, setMe] = useState<Me | null>(null);
   const [projects, setProjects] = useState<Row[] | null>(null);
   const [health, setHealth] = useState<any>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [q, setQ] = useState('');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const refresh = () => api('/api/projects').then(setProjects).catch(() => setProjects([]));
+  useEffect(() => { api('/api/me').then(setMe).catch(() => {}); }, []);
   useEffect(() => { refresh(); api('/api/health').then(setHealth).catch(() => {}); try { const t = localStorage.getItem('nm-theme') as any; if (t) setTheme(t); setCollapsed(localStorage.getItem('nm-side') === '1'); } catch {} }, []);
   useEffect(() => { const busy = projects?.some((p) => p.busy); const t = setInterval(refresh, busy ? 2500 : 10000); return () => clearInterval(t); }, [projects]);
   useEffect(() => { refresh(); }, [path]);
@@ -54,7 +64,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           <Link href="/" className={`navbtn ${path === '/' ? 'on' : ''}`} title="Studio"><I.home /><span className="hide-c">Studio</span></Link>
           <Link href="/library" className={`navbtn ${path === '/library' ? 'on' : ''}`} title="Library"><I.film /><span className="hide-c">Library</span></Link>
           <Link href="/directions" className={`navbtn ${path === '/directions' ? 'on' : ''}`} title="Directions"><I.palette /><span className="hide-c">Directions</span></Link>
-          <div className="sidehd hide-c"><span className="mono">Your reel</span><span className="tc xs">{projects?.length ?? ''}</span></div>
+          <div className="sidehd hide-c"><span className="mono">{me?.auth ? "Team reel" : "Your reel"}</span><span className="tc xs">{projects?.length ?? ''}</span></div>
           <div className="reel hide-c">
             {projects === null ? [0, 1, 2].map((i) => <div key={i} className="reelitem"><span className="poster" /><span className="grow"><span className="t" style={{ display: 'block', width: '70%', height: 10, background: 'var(--panel3)', borderRadius: 4 }} /></span></div>)
               : list.length === 0 ? <div className="dim xs" style={{ padding: '6px 9px' }}>{q ? 'No matches.' : 'Your videos will appear here.'}</div>
@@ -63,7 +73,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   <span className="poster" style={{ backgroundImage: p.thumb ? `url(${fileUrl(p.id, p.thumb)})` : undefined, ['--pa' as any]: DIRECTIONS[p.style]?.palette.accent }} />
                   <span className="grow" style={{ minWidth: 0 }}>
                     <span className="t ell" style={{ display: 'block' }}>{p.name}</span>
-                    <span className="s row" style={{ gap: 6 }}>{p.busy ? <><span className="dot busy" />Nick is working…</> : <>{p.renders ? `${p.renders} render${p.renders > 1 ? 's' : ''}` : stageLabel(p.stage)} · {timeAgo(p.updatedAt)}</>}</span>
+                    <span className="s row" style={{ gap: 6 }}>{p.busy ? <><span className="dot busy" />Nick is working…</> : <>{p.renders ? `${p.renders} render${p.renders > 1 ? 's' : ''}` : stageLabel(p.stage)} · {timeAgo(p.updatedAt)}{me?.auth && p.creator?.name && p.creator.name !== me.user.name ? ` · ${p.creator.name.split(' ')[0]}` : ''}</>}</span>
                   </span>
                 </Link>))}
           </div>
@@ -72,6 +82,11 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             <div className="row hide-c" style={{ padding: '4px 9px 6px', gap: 12 }} title={health?.checks?.map((c: any) => `${c.label}: ${c.ok ? 'ready' : c.hint}`).join('\n')}>
               {[['anthropic', 'AI'], ['eleven', 'Voice'], ['chromium', 'Render']].map(([id, l]) => <span key={id} className="row xs muted" style={{ gap: 5 }}><span className={`dot ${chk(id)?.ok ? 'on' : chk(id) ? 'warn' : ''}`} />{l}</span>)}
             </div>
+            {me?.auth && <div className="whoami hide-c" title={me.user.email}>
+              {me.user.image ? <img src={me.user.image} alt="" referrerPolicy="no-referrer" /> : <span className="av">{(me.user.name || me.user.email)[0]?.toUpperCase()}</span>}
+              <span className="grow ell xs">{me.user.name || me.user.email}</span>
+              <button className="btn ghost sm" onClick={() => signOut({ callbackUrl: '/signin' })}>Sign out</button>
+            </div>}
             <button className="navbtn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Toggle theme">{theme === 'dark' ? <I.sun /> : <I.moon />}<span className="hide-c">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span></button>
           </div>
         </aside>

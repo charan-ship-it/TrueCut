@@ -14,7 +14,7 @@ const started = Date.now();
 let ready = false;
 
 // Railway (and anyone else) can probe GET /health; it also keeps the service "listening" if a port is set.
-const port = Number(env('PORT', '0'));
+const port = Number(env('PORT') || (env('RAILWAY_ENVIRONMENT_ID') ? '8080' : '0'));
 const server = port ? http.createServer(async (req, res) => {
   if (req.url !== '/health') { res.writeHead(404).end(); return; }
   let db = true; try { await sql()`select 1`; } catch { db = false; }

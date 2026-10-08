@@ -13,25 +13,38 @@ The rule in both modes: **every number and claim on screen traces to a source.**
 
 ---
 
-## Quick start
+## Quick start (your laptop)
+
+You need Node 22 and Postgres 16 (`brew install postgresql@16`, or `docker compose up -d db`).
 
 ```bash
-npm run setup          # deps (bundled ffmpeg), headless Chromium, .env.local, demo project, health check
+npm run setup          # deps, headless Chromium, .env.local, database, demo project, health check
 npm run dev            # → http://localhost:3100
 ```
+
+Locally everything runs in one process and files stay in `data/`. Sign-in is off until you set the Google keys.
+The full guide, including running the worker and a bucket locally, is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ### Keys (`.env.local`)
 
 | Key | Powers | Without it |
 |---|---|---|
+| `DATABASE_URL` | Projects, chat, jobs, users | Required |
 | `ANTHROPIC_API_KEY` | Fact extraction, angles, storyboards, the founder-talk edit, chat edits | Rule-based fallbacks |
 | `ELEVENLABS_API_KEY` | Voice-over for ads, **Scribe transcription** for founder talks | Ads get music and captions only. Talks need a transcript. |
 
-To reuse keys that already live elsewhere, point TrueCut at those files. Only the keys above are read from them, and nothing is copied:
+To reuse keys that already live elsewhere, point TrueCut at those files. Only the API keys are read from them, and nothing is copied:
 
 ```bash
 TRUECUT_ENV_FILES=../linkedin-nick/.env,../agent-nick/.env.local
 ```
+
+Every setting is listed in [.env.example](.env.example).
+
+### For the team (hosted)
+
+TrueCut runs on Railway as two services from one image: **web** (UI + API) and **worker** (Nick turns, transcription, voice, renders), with Postgres for data and the job queue and a bucket for files. Team members sign in with their Google work account.
+Step-by-step: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
 
@@ -71,23 +84,31 @@ recording ──► Scribe transcript ──► Claude's edit ──► cut + cr
 npm run make -- --url https://yourproduct.com --length 30 --formats 4x5,9x16
 npm run make -- --path ../agent-nick --text call-transcript.md --cta "Book a demo"
 npm run render -- <projectId> --formats 9x16
-npm run seed:demo        # the Agent Nick example (real AIX data)
-npm run doctor           # ffmpeg, Chromium, keys, data folder
-npm test
+npm run seed:demo        # the Agent Nick example (real AIX data, only on machines that have it)
+npm run doctor           # ffmpeg, Chromium, Postgres, keys, data folder
+npm run db:migrate       # apply database migrations
+npm run db:import        # copy old data/projects/*/project.json into Postgres
+npm test                 # unit + integration tests (uses a local truecut_test database)
 ```
 
-## Project layout
+## Repository layout
 
 ```
-app/                Next.js app (chat UI + API routes)
-components/         Shell, Composer, Studio (chat), Monitor, cards, Edit bay panels
-lib/agent.ts        Nick: the conversation, one background job per turn
-lib/talk.ts         founder talk: ingest, Scribe, edit plan, cut, mix, composite render
-lib/ai.ts           Claude prompts (facts, storyboard, revisions); every call uses a forced tool
-lib/facts.ts        the fact guard
-lib/synth.ts        procedural score + sound design (9 genres, no samples)
-public/engine/      the deterministic renderer: runtime.js (ads), talk.js (talks), styles.js (10 directions)
-data/               projects (git-ignored)
+apps/
+  web/          Next.js app: chat UI, API routes, Google sign-in
+  worker/       background job runner (pg-boss consumer)
+packages/
+  core/         the pipelines: sources, ads (facts, storyboard, casting), talk, audio, render, Nick (director)
+  engine/       the deterministic renderer (runtime.js, talk.js, styles.js), shared by preview and render
+  shared/       types, fact guard, composition helpers (safe in the browser)
+  db/           Postgres schema, migrations, projects/jobs/users
+  queue/        enqueue + job handlers (inline or pg-boss)
+  storage/      project files: local folder, synced with an S3-compatible bucket
+  config/       environment loading
+tools/          CLI scripts, setup, test helpers
+docs/           architecture, development, deployment, decisions (adr/)
 ```
 
-Data stays local in `data/projects/<id>/`. Keys and `.env*` files are never committed.
+How the pieces fit: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Why they are built this way: [docs/adr](docs/adr).
+
+Keys and `.env*` files are never committed. Project data lives in Postgres and the bucket (or `data/` locally), never in git.

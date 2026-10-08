@@ -6,12 +6,13 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { S3Client, CreateBucketCommand } from '@aws-sdk/client-s3';
 
 const endpoint = process.env.TRUECUT_TEST_S3_ENDPOINT;
+const key = process.env.TRUECUT_TEST_S3_KEY || 'test', secret = process.env.TRUECUT_TEST_S3_SECRET || 'test';
 
 describe.skipIf(!endpoint)('bucket sync', () => {
   let s: typeof import('../src/index');
   beforeAll(async () => {
-    Object.assign(process.env, { S3_ENDPOINT: endpoint, S3_BUCKET: 'truecut-test', S3_ACCESS_KEY_ID: 'test', S3_SECRET_ACCESS_KEY: 'test', S3_REGION: 'us-east-1', S3_FORCE_PATH_STYLE: '1' });
-    const c = new S3Client({ endpoint, region: 'us-east-1', forcePathStyle: true, credentials: { accessKeyId: 'test', secretAccessKey: 'test' } });
+    Object.assign(process.env, { S3_ENDPOINT: endpoint, S3_BUCKET: 'truecut-test', S3_ACCESS_KEY_ID: key, S3_SECRET_ACCESS_KEY: secret, S3_REGION: 'us-east-1', S3_FORCE_PATH_STYLE: '1' });
+    const c = new S3Client({ endpoint, region: 'us-east-1', forcePathStyle: true, credentials: { accessKeyId: key, secretAccessKey: secret } });
     await c.send(new CreateBucketCommand({ Bucket: 'truecut-test' })).catch(() => {});
     s = await import('../src/index');
   });

@@ -1,6 +1,6 @@
 {
   "name": "truecut",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "TrueCut \u2014 drop a link, get a film: fact-checked motion videos and founder-talk edits, directed in a conversation.",
   "type": "module",

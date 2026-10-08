@@ -1,5 +1,9 @@
 # TrueCut — roadmap
 
+## Done (v0.3)
+
+- **Hosted multi-user:** Google sign-in for the team, Postgres, a job queue with a separate render worker, and bucket storage. See [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ## Next (v0.2)
 
 - **Brand kit:** upload fonts (woff2), a logo lockup and secondary colours, with per-project brand presets.
@@ -13,7 +17,8 @@
 
 ## Later
 
-- **Hosted multi-user:** auth, Postgres, S3, BullMQ render workers and team sharing.
+- **AIX Core integration:** map AIX Core organisations onto TrueCut workspaces and sign in with AIX Core.
+- **Per-project sharing and roles** beyond one team workspace.
 - **Publish** to LinkedIn and Instagram (reuse Agent Nick's Zernio integration).
 - **Agent Nick hand-off:** turn a Nick-approved idea plus a draft into a video in one click, through an API rather than a shared codebase.
 - **Localization:** multiple voice languages, with caption re-timing per language.

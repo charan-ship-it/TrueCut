@@ -1,5 +1,6 @@
 // One-off: copy projects from the old file store (data/projects/<id>/project.json) into Postgres.
-// The media files stay where they are (data/projects/<id>/…), which is the local working folder.
+// The media files stay in data/projects/<id>/ (the local working folder); when S3_* / BUCKET variables
+// are set they are also uploaded to the bucket, which is how a laptop's projects move to the hosted app.
 // Safe to re-run: existing rows are updated in place.
 //   npm run db:import            # every project under TRUECUT_DATA
 //   npm run db:import -- <id>…   # just these
@@ -8,7 +9,7 @@ import path from 'node:path';
 import { config } from '@truecut/config';
 import { importProject, closeDb } from '@truecut/db';
 import { runMigrations } from '@truecut/db/migrate';
-import { projectsDir } from '@truecut/storage';
+import { projectsDir, storageDriver, flush } from '@truecut/storage';
 
 async function main() {
   await runMigrations();
@@ -22,7 +23,9 @@ async function main() {
       const raw = JSON.parse(fs.readFileSync(path.join(dir, id, 'project.json'), 'utf8'));
       raw.agentBusy = false;
       await importProject(raw);
-      ok++; console.log(`✓ ${id}  ${raw.name}`);
+      // with a bucket configured, the project's files go up too
+      const up = storageDriver() === 's3' ? await flush(id) : null;
+      ok++; console.log(`✓ ${id}  ${raw.name}${up ? `  (${up.uploaded} files uploaded)` : ''}`);
     } catch (e: any) { console.error(`✗ ${id}: ${e.message}`); }
   }
   console.log(`Imported ${ok}/${ids.length} projects from ${path.relative(process.cwd(), config.dataDir) || config.dataDir}.`);

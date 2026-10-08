@@ -1,0 +1,13 @@
+.git
+node_modules
+**/node_modules
+**/.next
+data
+.env
+.env.*
+!.env.example
+tools/fixtures
+apps/web/public/engine
+qa-out
+*.log
+.DS_Store

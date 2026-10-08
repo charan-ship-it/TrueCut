@@ -7,7 +7,9 @@
   - Homebrew: `brew install postgresql@16 && brew services start postgresql@16`, then
     `createuser -s truecut; createdb -O truecut truecut; createdb -O truecut truecut_test`
     (set a password with `psql -c "alter user truecut password 'truecut'"`), or
-  - Docker: `docker compose up -d db` (creates `truecut` with password `truecut`; run
+  - Docker: `docker compose up -d db` (creates `truecut` with password `truecut`. If another project's
+    Postgres already uses port 5432, run `TRUECUT_DB_PORT=5433 docker compose up -d db` and use port 5433 in
+    `DATABASE_URL`. Run
     `docker compose exec db createdb -U truecut truecut_test` once for the tests).
 - The Anthropic and ElevenLabs keys if you want the AI and voice (everything has a fallback without them).
 

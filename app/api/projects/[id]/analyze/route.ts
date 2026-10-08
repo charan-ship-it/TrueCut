@@ -1,4 +1,0 @@
-import { ok, route } from '@/lib/http';
-import { startAnalyze } from '@/lib/actions';
-export const dynamic = 'force-dynamic';
-export const POST = route(async (_r: Request, { params }: { params: { id: string } }) => ok({ jobs: [startAnalyze(params.id).id] }));

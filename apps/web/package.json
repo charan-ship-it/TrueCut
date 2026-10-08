@@ -1,0 +1,25 @@
+{
+  "name": "@truecut/web",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "TrueCut web app: chat UI, monitor, edit bay and the HTTP API.",
+  "scripts": {
+    "predev": "node ../../tools/sync-engine.mjs",
+    "dev": "NODE_ENV=development next dev -p ${PORT:-3100}",
+    "prebuild": "node ../../tools/sync-engine.mjs",
+    "build": "NODE_ENV=production next build",
+    "start": "NODE_ENV=production next start -p ${PORT:-3100}"
+  },
+  "dependencies": {
+    "@truecut/shared": "*",
+    "@truecut/config": "*",
+    "@truecut/db": "*",
+    "@truecut/queue": "*",
+    "@truecut/core": "*",
+    "@truecut/engine": "*",
+    "next": "14.2.35",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

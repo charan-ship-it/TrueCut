@@ -7,5 +7,6 @@ data/
 *.log
 tsconfig.tsbuildinfo
 qa-out/
-scripts/fixtures/
+tools/fixtures/
+apps/web/public/engine/
 .DS_Store

@@ -1,0 +1,10 @@
+{
+  "name": "@truecut/engine",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic browser renderer for ads (runtime.js) and founder talks (talk.js), plus creative directions and fonts. Used by the live preview and the render worker.",
+  "exports": {
+    "./*": "./src/*"
+  }
+}

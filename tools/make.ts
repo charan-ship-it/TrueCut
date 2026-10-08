@@ -4,7 +4,8 @@
 // Interactive by default: it asks the questions the AI could not answer. --yes accepts the suggestions.
 import fs from 'node:fs';
 import readline from 'node:readline/promises';
-import { createProject, getProject, updateProject, projectPath } from '@truecut/db';
+import { createProject, getProject, updateProject, closeDb } from '@truecut/db';
+import { projectPath, ensureProjectDirs } from '@truecut/storage';
 import { addSource, ingestUrl, ingestPath, ingestText } from '@truecut/core/sources/ingest';
 import { analyze, storyboard } from '@truecut/core/ads/ai';
 import { voiceAll } from '@truecut/core/audio/voice';
@@ -27,15 +28,16 @@ const rl = yes ? null : readline.createInterface({ input: process.stdin, output:
 const ask = async (q: string, def = '') => { if (!rl) return def; const a = (await rl.question(`\n? ${q}${def ? ` [${def}]` : ''}\n> `)).trim(); return a || def; };
 
 console.log(`\nTrueCut · Claude ${config.anthropicKey ? 'on' : 'OFF (template mode)'} · ElevenLabs ${config.elevenKey ? 'on' : 'OFF (no voice)'}\n`);
-const p0 = resume ? getProject(resume) : createProject(one('--name') || (urls[0] ? new URL(/^https?:/.test(urls[0]) ? urls[0] : 'https://' + urls[0]).hostname.replace(/^www\./, '') : path.basename(path.resolve(paths[0] || 'video'))));
+const p0 = resume ? await getProject(resume) : await createProject(one('--name') || (urls[0] ? new URL(/^https?:/.test(urls[0]) ? urls[0] : 'https://' + urls[0]).hostname.replace(/^www\./, '') : path.basename(path.resolve(paths[0] || 'video'))));
 const id = p0.id;
+ensureProjectDirs(id);
 console.log(`Project ${id} → ${projectPath(id)}\n`);
-if (!resume) for (const u of urls) { const s = addSource(id, 'url', u); await ingestUrl(id, s.id, /^https?:/.test(u) ? u : 'https://' + u, log); }
-if (!resume) for (const d of paths) { const s = addSource(id, 'path', path.resolve(d)); await ingestPath(id, s.id, path.resolve(d), log); }
-if (!resume) for (const t of texts) { const s = addSource(id, 'text', t, path.basename(t)); ingestText(id, s.id, fs.readFileSync(t, 'utf8')); }
+if (!resume) for (const u of urls) { const s = await addSource(id, 'url', u); await ingestUrl(id, s.id, /^https?:/.test(u) ? u : 'https://' + u, log); }
+if (!resume) for (const d of paths) { const s = await addSource(id, 'path', path.resolve(d)); await ingestPath(id, s.id, path.resolve(d), log); }
+if (!resume) for (const t of texts) { const s = await addSource(id, 'text', t, path.basename(t)); await ingestText(id, s.id, fs.readFileSync(t, 'utf8')); }
 
-if (!resume || !getProject(id).facts.length) await analyze(id, log);
-let p = getProject(id);
+if (!resume || !(await getProject(id)).facts.length) await analyze(id, log);
+let p = await getProject(id);
 const pr: any = p.product;
 console.log(`\n${pr.name || ''} — ${pr.oneLiner || ''}\nFacts: ${p.facts.length} (${p.facts.filter((f) => f.status === 'verified').length} verified) · Visuals: ${p.visuals.length}`);
 const intake = { ...p.intake };
@@ -47,16 +49,17 @@ intake.length = Number(one('--length') || (await ask('Length in seconds (15/30/4
 intake.formats = (one('--formats') || intake.formats.join(',')).split(',') as any;
 const questions: typeof p.questions = [];
 for (const q of p.questions) questions.push({ ...q, answer: await ask(q.question, q.suggested) });
-updateProject(id, (pp) => { pp.intake = intake; pp.questions = questions; });
+await updateProject(id, (pp) => { pp.intake = intake; pp.questions = questions; });
 
-if (!resume || !getProject(id).scenes.length || has('--restory')) await storyboard(id, log);
-p = getProject(id);
+if (!resume || !(await getProject(id)).scenes.length || has('--restory')) await storyboard(id, log);
+p = await getProject(id);
 console.log(`\nStoryboard — ${p.brief?.title || ''}\n${p.scenes.map((s, i) => `  ${String(i + 1).padStart(2)}. [${s.type}] ${s.vo?.text || ''}`).join('\n')}`);
 const issues = checkScenes(p);
 for (const i of issues) console.log(`  ${i.level === 'error' ? '✗' : '!'} ${i.message}`);
-if (issues.some((i) => i.level === 'error')) { console.log('\nSome numbers are not backed by facts. Open the app to fix them:  npm run dev  →  http://localhost:3100/p/' + id); if (!has('--force')) { rl?.close(); process.exit(2); } }
+if (issues.some((i) => i.level === 'error')) { console.log('\nSome numbers are not backed by facts. Open the app to fix them:  npm run dev  →  http://localhost:3100/p/' + id); if (!has('--force')) { rl?.close(); await closeDb(); process.exit(2); } }
 if (config.elevenKey) await voiceAll(id, log); else log('Skipping voice (no ELEVENLABS_API_KEY)');
-if (has('--no-render')) { console.log(`\nReady to render: npm run render -- ${id}`); rl?.close(); process.exit(0); }
+if (has('--no-render')) { console.log(`\nReady to render: npm run render -- ${id}`); rl?.close(); await closeDb(); process.exit(0); }
 const outs = await renderProject(id, intake.formats, log);
 console.log('\nDone:'); for (const o of outs) console.log('  ' + projectPath(id, o.file));
 rl?.close();
+await closeDb();

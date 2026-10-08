@@ -4,7 +4,9 @@
 import fs from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '@truecut/config';
-import { corpus, getProject, newId, projectPath, updateProject } from '@truecut/db';
+import { getProject, newId, updateProject } from '@truecut/db';
+import { projectPath } from '@truecut/storage';
+import { corpus } from '../sources/corpus';
 import { toJpeg } from '../render/media';
 import { verifyFact, numbersIn, checkScenes } from '@truecut/shared/facts';
 import type { Fact, Project, Question, Scene, Visual } from '@truecut/shared/types';
@@ -106,7 +108,7 @@ const ANALYZE_TOOL = {
 };
 
 export async function analyze(pid: string, log: Log) {
-  const p = getProject(pid);
+  const p = await getProject(pid);
   const text = corpus(p);
   if (!text.trim() && !p.visuals.length) throw new Error('Add at least one source first.');
   let out: any;
@@ -125,7 +127,7 @@ export async function analyze(pid: string, log: Log) {
     out = heuristicAnalysis(p, text);
   }
   log('Checking every fact against the sources…', 80);
-  updateProject(pid, (pp) => {
+  await updateProject(pid, (pp) => {
     const shotText = (out.facts || []).filter((f: any) => pp.visuals.some((v) => v.id === f.where)).map((f: any) => f.quote).join('\n');
     pp.product = out.product || {};
     const keep = pp.facts.filter((f) => f.id.startsWith('u')); // user-added facts survive re-analysis
@@ -151,7 +153,7 @@ export async function analyze(pid: string, log: Log) {
     if (!i.dataLabel) { const d = new Date(); i.dataLabel = `Real data · ${d.toLocaleString('en-US', { month: 'short' })} ${d.getFullYear()}`; }
     pp.stage = 'facts';
   });
-  const fin = getProject(pid);
+  const fin = await getProject(pid);
   log(`Found ${fin.facts.length} facts (${fin.facts.filter((f) => f.status === 'verified').length} verified word-for-word, ${fin.facts.filter((f) => !f.approved).length} held back for review) and ${fin.questions.length} questions`, 100);
 }
 
@@ -224,7 +226,7 @@ ${vis || '—'}`;
 }
 
 export async function storyboard(pid: string, log: Log) {
-  const p = getProject(pid);
+  const p = await getProject(pid);
   let out: any;
   if (config.anthropicKey) {
     log('Writing the brief and storyboard with Claude…', 20);
@@ -239,14 +241,14 @@ export async function storyboard(pid: string, log: Log) {
     out = templateStoryboard(p);
   }
   log('Validating scenes…', 85);
-  updateProject(pid, (pp) => {
+  await updateProject(pid, (pp) => {
     pp.brief = { title: '', concept: '', insight: '', audience: '', proposition: '', hook: '', ...(out.brief || {}) };
     pp.scenes = (out.scenes || []).map((s: any): Scene => normalizeScene(pp, s));
     pp.audioFile = undefined; pp.audioHash = undefined;
     pp.stage = 'storyboard';
   });
   if (config.anthropicKey) {
-    const bad = checkScenes(getProject(pid)).filter((i) => i.level === 'error' && i.sceneId);
+    const bad = checkScenes(await getProject(pid)).filter((i) => i.level === 'error' && i.sceneId);
     const ids = [...new Set(bad.map((b) => b.sceneId))];
     for (const [k, sid] of ids.entries()) {
       log(`Fact guard: repairing scene ${k + 1}/${ids.length}…`, 88 + (10 * k) / ids.length);
@@ -254,8 +256,8 @@ export async function storyboard(pid: string, log: Log) {
       try { await reviseScene(pid, sid, `FACT GUARD FAILED: ${msgs} Rewrite this scene so every number comes from an approved fact (or use no number at all). Keep the scene's role in the story.`); } catch (e: any) { log('Repair failed: ' + e.message); }
     }
   }
-  const left = checkScenes(getProject(pid)).filter((i) => i.level === 'error').length;
-  { const fp = getProject(pid); const words = fp.scenes.reduce((a, s) => a + (s.vo?.text || '').split(/\s+/).filter(Boolean).length, 0); const budget = Math.round(fp.intake.length * 2.2);
+  const left = checkScenes(await getProject(pid)).filter((i) => i.level === 'error').length;
+  { const fp = await getProject(pid); const words = fp.scenes.reduce((a, s) => a + (s.vo?.text || '').split(/\s+/).filter(Boolean).length, 0); const budget = Math.round(fp.intake.length * 2.2);
     if (words > budget * 1.15 && config.anthropicKey) { log(`Voice is ${words} words for a ${fp.intake.length}s target — tightening…`, 95); try { await tighten(pid, budget); } catch (e: any) { log('Tightening failed: ' + e.message); } } }
   log(`Storyboard ready: ${(out.scenes || []).length} scenes${left ? ` — ${left} fact issue(s) need you` : ' — every number traced'}`, 100);
 }
@@ -296,7 +298,7 @@ function templateStoryboard(p: Project) {
 
 // ───────────────────────── revise one scene ─────────────────────────
 export async function reviseScene(pid: string, sceneId: string, instruction: string) {
-  const p = getProject(pid);
+  const p = await getProject(pid);
   const sc = p.scenes.find((s) => s.id === sceneId);
   if (!sc) throw new Error('Scene not found');
   if (!config.anthropicKey) throw new Error('Revising with AI needs ANTHROPIC_API_KEY.');
@@ -306,7 +308,7 @@ export async function reviseScene(pid: string, sceneId: string, instruction: str
     tool: { name: 'record_scene', description: 'The revised scene', input_schema: STORY_TOOL.input_schema.properties.scenes.items },
     content: [{ type: 'text', text: `${storyContext(p)}\n\nFULL STORYBOARD (for context):\n${p.scenes.map((s, k) => `${k + 1}. [${s.type}] ${s.vo?.text || ''}`).join('\n')}\n\nSCENE TO REVISE:\n${JSON.stringify({ type: sc.type, vo: sc.vo?.text, caption: sc.caption, status: sc.status, props: sc.props, facts: sc.facts })}\n\nINSTRUCTION: ${instruction}` }],
   });
-  updateProject(pid, (pp) => {
+  await updateProject(pid, (pp) => {
     const k = pp.scenes.findIndex((s) => s.id === sceneId);
     if (k >= 0) { const n = normalizeScene(pp, { ...out, id: sceneId }); if (n.vo && sc.vo && n.vo.text === sc.vo.text) n.vo = sc.vo; pp.scenes[k] = n; }
   });
@@ -314,7 +316,7 @@ export async function reviseScene(pid: string, sceneId: string, instruction: str
 
 /** Shortens voice lines to fit the word budget for the target length (one Claude call). */
 async function tighten(pid: string, budget: number) {
-  const p = getProject(pid);
+  const p = await getProject(pid);
   const out = await callTool<any>({
     model: config.creativeModel, maxTokens: 3000,
     system: `You are the editor. Shorten the spoken lines so the TOTAL is at most ${budget} words, keeping meaning, rhythm and every fact. Do not add numbers. You may make a line empty ("") if the visual carries the scene.`,
@@ -323,5 +325,5 @@ async function tighten(pid: string, budget: number) {
   });
   const lines: string[] = out.lines || [];
   if (lines.length !== p.scenes.length) return;
-  updateProject(pid, (pp) => { pp.scenes.forEach((s, i) => { const t = String(lines[i] || '').trim(); s.vo = t ? { text: t } : undefined; if (s.caption && t) s.caption = undefined; }); });
+  await updateProject(pid, (pp) => { pp.scenes.forEach((s, i) => { const t = String(lines[i] || '').trim(); s.vo = t ? { text: t } : undefined; if (s.caption && t) s.caption = undefined; }); });
 }

@@ -9,7 +9,7 @@ export async function readAction(req: Request, pid: string): Promise<Action> {
     const action = JSON.parse(String(fd.get('action') || '{"type":"message","text":""}')) as Action;
     const files = fd.getAll('files').filter((f): f is File => typeof f !== 'string');
     const atts: Attachment[] = [];
-    for (const f of files) { const s = addSource(pid, 'upload', f.name); await ingestUpload(pid, s.id, f.name, Buffer.from(await f.arrayBuffer())); atts.push({ kind: 'upload', label: f.name, ref: s.id }); }
+    for (const f of files) { const s = await addSource(pid, 'upload', f.name); await ingestUpload(pid, s.id, f.name, Buffer.from(await f.arrayBuffer())); atts.push({ kind: 'upload', label: f.name, ref: s.id }); }
     if (action.type === 'message') action.attachments = [...(action.attachments || []), ...atts];
     return action;
   }

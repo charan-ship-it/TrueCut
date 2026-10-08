@@ -28,14 +28,15 @@ describe('voice casting (rule-based)', () => {
 
 import { voiceAll } from '../src/audio/voice';
 import { createProject, updateProject, getProject } from '@truecut/db';
-describe('founder talks keep the founder voice', () => {
+import { dbReady } from '../../../tools/test/db';
+describe.skipIf(!dbReady)('founder talks keep the founder voice', () => {
   it('never synthesises voice-over for a talk', async () => {
     const id = 'test-talk-lock';
-    createProject('lock', id);
-    updateProject(id, (p) => { p.kind = 'talk'; p.scenes = [{ id: 'a', type: 'headline', vo: { text: 'hello' }, props: {}, facts: [] }] as any; });
+    await createProject('lock', { id });
+    await updateProject(id, (p) => { p.kind = 'talk'; p.scenes = [{ id: 'a', type: 'headline', vo: { text: 'hello' }, props: {}, facts: [] }] as any; });
     const logs: string[] = [];
     await voiceAll(id, (m) => logs.push(m));
     expect(logs.join(' ')).toMatch(/original voice/);
-    expect(getProject(id).scenes[0].vo?.file).toBeUndefined();
+    expect((await getProject(id)).scenes[0].vo?.file).toBeUndefined();
   });
 });

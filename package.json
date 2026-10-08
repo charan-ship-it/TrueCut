@@ -21,12 +21,16 @@
     "render": "tsx tools/render-cli.ts",
     "seed:demo": "tsx tools/seed-demo.ts",
     "doctor": "tsx tools/doctor.ts",
-    "setup": "bash tools/setup.sh"
+    "setup": "bash tools/setup.sh",
+    "db:migrate": "npm run migrate -w @truecut/db",
+    "db:generate": "npm run generate -w @truecut/db",
+    "db:import": "tsx tools/import-projects.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "drizzle-orm": "^0.45.4",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"

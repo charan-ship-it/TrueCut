@@ -1,0 +1,9 @@
+{
+  "name": "@truecut/storage",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Project files (sources, screenshots, voice, renders): a local working folder per project, mirrored to an S3-compatible bucket when one is configured.",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@truecut/config": "*" }
+}

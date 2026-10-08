@@ -1,21 +1,23 @@
 // Builds the full soundtrack (score + SFX + voice, ducked) for a project.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import { getProject, projectPath, updateProject } from '@truecut/db';
+import { getProject, updateProject } from '@truecut/db';
+import { projectPath } from '@truecut/storage';
 import { decodeAudio } from '../render/media';
 import { projectLayout } from '@truecut/shared/compose';
 import { score, wav, SR } from './synth';
 import type { Log } from '@truecut/queue';
 import { resolveStyle } from '@truecut/engine/styles.js';
+import type { Project } from '@truecut/shared/types';
 
-export function audioKey(pid: string) {
-  const p = getProject(pid); const L = projectLayout(p);
+export async function audioKey(pid: string) {
+  const p = await getProject(pid); const L = projectLayout(p);
   return crypto.createHash('sha1').update(JSON.stringify([p.music.mode, p.style, p.cast?.music, 'g3', L.duration, L.revealAt, L.scenes.map((s: any) => [s.type, s.start, s.vo?.text, s.scene?.vo?.file]), p.scenes.map((s) => s.vo?.hash || '')])).digest('hex').slice(0, 12);
 }
 
 export async function buildAudio(pid: string, log: Log) {
-  const p = getProject(pid);
-  const key = audioKey(pid);
+  const p = await getProject(pid);
+  const key = await audioKey(pid);
   if (p.audioFile && p.audioHash === key && fs.existsSync(projectPath(pid, p.audioFile))) { log('Soundtrack up to date', 100); return p.audioFile; }
   const L = projectLayout(p);
   log('Decoding voice…', 10);
@@ -29,13 +31,13 @@ export async function buildAudio(pid: string, log: Log) {
   const out = score({ duration: L.duration, revealAt: L.revealAt, endAt: endScene ? endScene.start : null, cues: L.cues as any, vo, music: p.music.mode === 'none' ? false : scoreFor(p), seed: parseInt(key.slice(0, 6), 16) });
   const file = `audio/mix-${key}.wav`;
   fs.writeFileSync(projectPath(pid, file), wav(out.L, out.R));
-  updateProject(pid, (pp) => { pp.audioFile = file; pp.audioHash = key; });
+  await updateProject(pid, (pp) => { pp.audioFile = file; pp.audioHash = key; });
   log(vo.length ? `Soundtrack ready (${vo.length} voice lines)` : 'Soundtrack ready (no voice yet — music and effects only)', 100);
   return file;
 }
 
 /** The direction's score, unless casting picked one for this same direction. */
-export function scoreFor(p: ReturnType<typeof getProject>) {
+export function scoreFor(p: Project) {
   const base = resolveStyle(p.style || {}, p.intake.accent).music;
   const c = p.cast?.music;
   if (c && c.genre && (!c.preset || c.preset === p.style?.preset)) return { ...base, genre: c.genre, bpm: c.bpm || base.bpm };

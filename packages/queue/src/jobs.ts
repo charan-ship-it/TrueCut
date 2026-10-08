@@ -1,40 +1,78 @@
-// Background jobs (ingest, analyse, storyboard, voice, audio, render) with progress + logs.
-// Runs in-process; heavy jobs are serialised so a laptop is never asked to render twice at once.
-import fs from 'node:fs';
-import path from 'node:path';
-import { config } from '@truecut/config';
-import { newId } from '@truecut/db';
+// Background jobs. The web app calls enqueue(); a handler registered for that kind does the work and
+// reports progress through `log`, which is buffered and flushed to the job row (that flush is the heartbeat).
+//
+// Drivers (TRUECUT_QUEUE):
+//   inline  run the handler in this process (local dev, tests, the CLI). Heavy jobs run one at a time.
+//   pgboss  hand the job to the worker service through Postgres (see ./boss.ts). Default when the
+//           worker is deployed.
+import { createJob, finishJob, markRunning, reportJob, getJob, projectJobs, isBusy, busyProjects, type Job } from '@truecut/db';
+import { env } from '@truecut/config';
+import { ensureProjectDirs } from '@truecut/storage';
 
-export type Job = { id: string; kind: string; projectId: string; status: 'queued' | 'running' | 'done' | 'error'; progress: number; message: string; log: string[]; error?: string; createdAt: string; startedAt?: string; endedAt?: string; result?: any };
-type Reg = { jobs: Map<string, Job>; chain: Promise<void> };
-const g = globalThis as any;
-const reg: Reg = g.__nmJobs || (g.__nmJobs = { jobs: new Map(), chain: Promise.resolve() });
-
-const jobsDir = () => path.join(config.dataDir, 'jobs');
-function persist(j: Job) { try { fs.mkdirSync(jobsDir(), { recursive: true }); fs.writeFileSync(path.join(jobsDir(), j.id + '.json'), JSON.stringify(j)); } catch {} }
-
-export function getJob(id: string): Job | null {
-  if (reg.jobs.has(id)) return reg.jobs.get(id)!;
-  try { return JSON.parse(fs.readFileSync(path.join(jobsDir(), id + '.json'), 'utf8')); } catch { return null; }
-}
-export function projectJobs(pid: string): Job[] { return [...reg.jobs.values()].filter((j) => j.projectId === pid).sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
-
+export { getJob, projectJobs, isBusy, busyProjects, type Job };
 export type Log = (msg: string, pct?: number) => void;
+export type Ctx = { job: Job; log: Log; flush: () => Promise<void> };
+export type Handler<P = any> = (payload: P, ctx: Ctx) => Promise<any>;
+type Def = { fn: Handler; heavy: boolean };
 
-export function startJob(kind: string, projectId: string, fn: (log: Log, job: Job) => Promise<any>, opts: { heavy?: boolean } = {}): Job {
-  const job: Job = { id: 'j' + newId(), kind, projectId, status: 'queued', progress: 0, message: 'Queued', log: [], createdAt: new Date().toISOString() };
-  reg.jobs.set(job.id, job); persist(job);
-  let last = 0;
-  const log: Log = (msg, pct) => { job.message = msg; if (pct != null) job.progress = Math.max(0, Math.min(100, pct)); job.log.push(`${new Date().toISOString().slice(11, 19)} ${msg}`); if (job.log.length > 300) job.log.splice(0, 100); const now = Date.now(); if (now - last > 400) { last = now; persist(job); } };
-  const runIt = async () => {
-    job.status = 'running'; job.startedAt = new Date().toISOString(); persist(job);
-    try { job.result = await fn(log, job); job.status = 'done'; job.progress = 100; }
-    catch (e: any) { job.status = 'error'; job.error = e?.message || String(e); job.message = job.error!; console.error(`[job ${kind}]`, e); }
-    job.endedAt = new Date().toISOString(); persist(job);
-  };
-  if (opts.heavy) { reg.chain = reg.chain.then(runIt, runIt); } else { void runIt(); }
+const g = globalThis as any;
+const reg: { handlers: Map<string, Def>; chain: Promise<unknown> } = g.__truecutQueue || (g.__truecutQueue = { handlers: new Map(), chain: Promise.resolve() });
+
+/** Register what a job kind does. `heavy` jobs (renders) never run two at a time in one process. */
+export function defineHandler<P = any>(kind: string, fn: Handler<P>, opts: { heavy?: boolean } = {}) {
+  reg.handlers.set(kind, { fn, heavy: !!opts.heavy });
+}
+export const handlerKinds = () => [...reg.handlers.keys()];
+export const isHeavy = (kind: string) => !!reg.handlers.get(kind)?.heavy;
+
+export function queueDriver(): 'inline' | 'pgboss' { return env('TRUECUT_QUEUE', 'inline') === 'pgboss' ? 'pgboss' : 'inline'; }
+
+type Sender = (job: Job) => Promise<void>;
+let sender: Sender | null = null;
+/** Installed by ./boss.ts when the pg-boss driver is active. */
+export function setSender(s: Sender | null) { sender = s; }
+
+/** Create the job row and hand it to whoever runs jobs. Returns immediately. */
+export async function enqueue<P = any>(kind: string, projectId: string | null, payload: P, opts: { createdBy?: string | null } = {}): Promise<Job> {
+  const job = await createJob(kind, projectId, { payload, createdBy: opts.createdBy });
+  if (queueDriver() === 'pgboss') {
+    if (!sender) throw new Error('Queue is not started (call startQueue() first)');
+    await sender(job);
+  } else {
+    const run = () => runJob(job.id);
+    if (isHeavy(kind)) reg.chain = reg.chain.then(run, run); else void run().catch(() => {});
+  }
   return job;
 }
 
-/** True only while a job for this project is actually running in this server process (survives restarts correctly). */
-export function isBusy(pid: string, kind = 'nick') { return [...reg.jobs.values()].some((j) => j.projectId === pid && j.kind === kind && (j.status === 'running' || j.status === 'queued')); }
+/** Execute one job row with its registered handler. Used by the inline driver and by the worker. */
+export async function runJob(id: string): Promise<void> {
+  const job = await getJob(id);
+  if (!job) return;
+  if (job.status === 'done' || job.status === 'error') return;
+  const def = reg.handlers.get(job.kind);
+  if (!def) { await finishJob(id, { error: `No handler for job kind "${job.kind}"` }); return; }
+  if (job.projectId) ensureProjectDirs(job.projectId);
+  const lines: string[] = [...job.log];
+  let message = job.message, progress = job.progress, dirty = false, last = 0, pending: Promise<void> = Promise.resolve();
+  const flush = async () => { if (!dirty) return pending; dirty = false; const snap = { message, progress, log: lines.slice(-300) }; pending = pending.then(() => reportJob(id, snap)).catch((e) => console.error('[job flush]', e?.message)); return pending; };
+  const log: Log = (msg, pct) => {
+    message = msg; if (pct != null) progress = pct;
+    lines.push(`${new Date().toISOString().slice(11, 19)} ${msg}`); if (lines.length > 400) lines.splice(0, 100);
+    dirty = true; const t = Date.now(); if (t - last > 700) { last = t; void flush(); }
+  };
+  // heartbeat even when a handler is quiet for a while (e.g. a long Claude call)
+  const beat = setInterval(() => { dirty = true; void flush(); }, 20_000);
+  await markRunning(id);
+  try {
+    const result = await def.fn(job.payload ?? {}, { job: { ...job, status: 'running' }, log, flush });
+    clearInterval(beat);
+    if (message === 'Queued') { message = 'Done'; dirty = true; }
+    await flush();
+    await finishJob(id, { result, log: lines.slice(-300) });
+  } catch (e: any) {
+    clearInterval(beat); await flush().catch(() => {});
+    console.error(`[job ${job.kind} ${id}]`, e);
+    await finishJob(id, { error: e?.message || String(e), log: lines.slice(-300) });
+  }
+}

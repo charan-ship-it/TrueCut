@@ -8,7 +8,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { config } from '@truecut/config';
-import { getProject, newId, projectPath, updateProject, writeAtomic } from '@truecut/db';
+import { getProject, newId, updateProject } from '@truecut/db';
+import { projectPath, writeAtomic } from '@truecut/storage';
 import { ffmpeg, ffmpegPath, run, decodeAudio } from '../render/media';
 import { callTool } from '../ads/ai';
 import { numbersIn, allowedNumbers } from '@truecut/shared/facts';
@@ -62,7 +63,7 @@ export async function ingestMedia(pid: string, sid: string, srcFile: string, nam
   writeAtomic(projectPath(pid, textFile), `Transcript of ${name} (spoken by the founder/speaker)\n\n${text}`);
   const speakers = [...new Set(words.map((w) => w.sp).filter(Boolean) as string[])];
   const media: Media = { id: mid, sourceId: sid, name, file, duration: info.duration, w: info.w, h: info.h, hasVideo: info.hasVideo, wordsFile, words: words.length, speakers, poster };
-  updateProject(pid, (p) => {
+  await updateProject(pid, (p) => {
     const s = p.sources.find((x) => x.id === sid); if (s) Object.assign(s, { status: 'ready', textFile, chars: text.length, label: name, meta: { ...(s.meta || {}), media: mid, duration: info.duration } });
     p.talk.media.push(media); p.kind = 'talk';
     if (!p.style?.preset || p.style.preset === 'signal') p.style = { preset: 'editorial', useBrandAccent: true } as any;
@@ -135,7 +136,7 @@ const PLAN_TOOL = {
 };
 
 export async function planTalk(pid: string, log: Log, instruction = '') {
-  const p = getProject(pid);
+  const p = await getProject(pid);
   const media = p.talk.media[0]; if (!media) throw new Error('No recording in this project yet.');
   const words = loadWords(pid, media); if (!words.length) throw new Error('The recording has no transcript.');
   const target = p.intake.length || 45;
@@ -172,9 +173,9 @@ ${TOOLKIT_SPEC}`;
     log('No ANTHROPIC_API_KEY: using the rule-based editor (keeps the opening, one beat per sentence)');
     out = heuristicPlan(sents, words, target);
   }
-  applyPlan(pid, out, words, media);
-  const issues = guardTalk(pid);
-  const fp = getProject(pid);
+  await applyPlan(pid, out, words, media);
+  const issues = await guardTalk(pid);
+  const fp = await getProject(pid);
   log(`Edit ready: ${fp.talk.beats.length} beats, ${fp.talk.duration.toFixed(1)}s${issues ? ` (${issues} unverified number${issues > 1 ? 's' : ''} removed)` : ''}`);
 }
 
@@ -194,7 +195,7 @@ function heuristicPlan(sents: ReturnType<typeof sentences>, words: W[], target: 
 }
 
 /** Convert the model's word-index edit into source segments + output-timeline beats and captions. */
-export function applyPlan(pid: string, out: any, words: W[], media: Media) {
+export async function applyPlan(pid: string, out: any, words: W[], media: Media) {
   const n = words.length; const ci = (x: any) => Math.max(0, Math.min(n - 1, Math.round(Number(x) || 0)));
   const ranges = (out.keep || []).map((k: any) => [ci(k.from), ci(k.to)]).filter(([a, b]: number[]) => b >= a).sort((x: number[], y: number[]) => x[0] - y[0]);
   const kept = new Set<number>(); for (const [a, b] of ranges) for (let i = a; i <= b; i++) kept.add(i);
@@ -217,7 +218,7 @@ export function applyPlan(pid: string, out: any, words: W[], media: Media) {
   const proper = new Set(words.filter((w, i) => i > 0 && /^[A-Z]/.test(w.w) && !/[.!?]$/.test(words[i - 1].w)).map((w) => w.w.replace(/[^\w'-]/g, '')));
   for (const b of beats) { const ws = b.headline.split(' '); if (ws.length > 1 && ws.every((w) => /^[A-Z&]/.test(w))) b.headline = ws.map((w, i) => (i === 0 || proper.has(w.replace(/[^\w'-]/g, '')) || /^[A-Z0-9&]{2,}$/.test(w) ? w : w.toLowerCase())).join(' '); }
   if (!beats.length && duration) beats.push({ id: 'b0', start: 0, end: duration, headline: 'Listen', accent: 'Listen', visual: { kind: 'quote', text: '' }, facts: [] });
-  updateProject(pid, (p) => {
+  await updateProject(pid, (p) => {
     p.talk.segments = segs.map(({ mid, start, end }) => ({ mid, start: +start.toFixed(3), end: +end.toFixed(3) }));
     p.talk.beats = beats; p.talk.duration = +duration.toFixed(3);
     if (out.label) p.talk.label = String(out.label).slice(0, 40);
@@ -228,7 +229,7 @@ export function applyPlan(pid: string, out: any, words: W[], media: Media) {
     p.talk.mix = undefined; p.stage = 'storyboard'; p.scenes = [];
   });
   const cw = idx.map((i) => ({ w: words[i].w, ...map.get(i)! }));
-  updateProject(pid, (p) => { p.talk.captions = groupCaptions(cw); });
+  await updateProject(pid, (p) => { p.talk.captions = groupCaptions(cw); });
 }
 
 function sanitizeVisual(v: any) {
@@ -237,11 +238,11 @@ function sanitizeVisual(v: any) {
 }
 
 /** Talk fact guard: every number in a beat must be spoken in the kept transcript (or be an approved fact). */
-export function guardTalk(pid: string): number {
-  const p = getProject(pid); const m = p.talk.media[0]; if (!m) return 0;
+export async function guardTalk(pid: string): Promise<number> {
+  const p = await getProject(pid); const m = p.talk.media[0]; if (!m) return 0;
   const spoken = new Set(numbersIn(loadWords(pid, m).map((w) => w.w).join(' ')));
   const ok = allowedNumbers(p); let bad = 0;
-  updateProject(pid, (pp) => {
+  await updateProject(pid, (pp) => {
     pp.talk.beats = pp.talk.beats.map((b) => {
       const v = b.visual || {};
       const txt = [b.headline, b.sub, JSON.stringify({ ...v, values: undefined, count: undefined, cols: undefined, highlight: undefined, leaving: undefined, people: undefined, from: v.kind === 'meter' && v.showValue !== false ? v.from : undefined, to: v.kind === 'meter' && v.showValue !== false ? v.to : undefined })].join(' ');
@@ -259,20 +260,20 @@ async function detectFace(pid: string, m: Media) {
   if (!config.anthropicKey || !m.poster) return;
   const out = await callTool<any>({ model: config.model, maxTokens: 300, system: 'You locate the main speaker\'s face in a video frame.', tool: { name: 'face', description: 'Face centre, normalised 0-1', input_schema: { type: 'object', required: ['x', 'y'], properties: { x: { type: 'number' }, y: { type: 'number' } } } },
     content: [{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: fs.readFileSync(projectPath(pid, m.poster)).toString('base64') } }, { type: 'text', text: 'Where is the centre of the speaker\'s face? Return x,y in 0-1.' }] });
-  if (out && out.x >= 0 && out.x <= 1 && out.y >= 0 && out.y <= 1) updateProject(pid, (p) => { const mm = p.talk.media.find((x) => x.id === m.id); if (mm) mm.face = { x: out.x, y: out.y }; });
+  if (out && out.x >= 0 && out.x <= 1 && out.y >= 0 && out.y <= 1) await updateProject(pid, (p) => { const mm = p.talk.media.find((x) => x.id === m.id); if (mm) mm.face = { x: out.x, y: out.y }; });
 }
 
 // ───────────────────────── revise one beat ─────────────────────────
 export async function reviseBeat(pid: string, index: number, instruction: string) {
-  const p = getProject(pid); const b = p.talk.beats[index]; if (!b) throw new Error('No such beat');
+  const p = await getProject(pid); const b = p.talk.beats[index]; if (!b) throw new Error('No such beat');
   if (!config.anthropicKey) throw new Error('Revising needs ANTHROPIC_API_KEY.');
   const words = loadWords(pid, p.talk.media[0]);
   const said = words.slice(b.from ?? 0, (b.to ?? 0) + 1).map((w) => w.w).join(' ');
   const out = await callTool<any>({ model: config.creativeModel, maxTokens: 2500, system: `You are the explainer animator. Redesign ONE beat's headline/accent/sub/illustration per the instruction. Numbers only if spoken.\n${TOOLKIT_SPEC}`,
     tool: { name: 'record_beat', description: 'the revised beat', input_schema: { type: 'object', required: ['headline', 'accent', 'visual'], properties: { headline: { type: 'string' }, accent: { type: 'string' }, sub: { type: 'string' }, visual: { type: 'object' } } } },
     content: [{ type: 'text', text: `The speaker says during this beat: "${said}"\nCurrent: ${JSON.stringify({ headline: b.headline, accent: b.accent, sub: b.sub, visual: b.visual })}\nInstruction: ${instruction}` }] });
-  updateProject(pid, (pp) => { const x = pp.talk.beats[index]; if (x) Object.assign(x, { headline: String(out.headline || x.headline).slice(0, 40), accent: out.accent || x.accent, sub: out.sub, visual: sanitizeVisual(out.visual) }); });
-  guardTalk(pid);
+  await updateProject(pid, (pp) => { const x = pp.talk.beats[index]; if (x) Object.assign(x, { headline: String(out.headline || x.headline).slice(0, 40), accent: out.accent || x.accent, sub: out.sub, visual: sanitizeVisual(out.visual) }); });
+  await guardTalk(pid);
 }
 
 // ───────────────────────── cut, mix, proxy ─────────────────────────
@@ -305,7 +306,7 @@ const talkKey = (p: Project, extra: string) => crypto.createHash('sha1').update(
 
 /** The cut's audio (voice only) as a 48k wav. */
 async function cutAudio(pid: string) {
-  const p = getProject(pid); const key = talkKey(p, 'a');
+  const p = await getProject(pid); const key = talkKey(p, 'a');
   const out = `talk/voice-${key}.wav`; if (fs.existsSync(projectPath(pid, out))) return out;
   const { inputs, graph } = cutFilter(p, 2, 2, false, '#000');
   await ffmpeg([...inputs.flatMap((m) => ['-i', projectPath(pid, m.file)]), '-filter_complex', graph, '-map', '[aout]', '-ac', '1', '-ar', String(SR), projectPath(pid, out)]);
@@ -314,7 +315,7 @@ async function cutAudio(pid: string) {
 
 /** Voice + a quiet generated bed + soft beat ticks, ducked under the voice. */
 export async function talkMix(pid: string, log: Log) {
-  let p = getProject(pid);
+  let p = await getProject(pid);
   const L = talkLayout(toComposition(p) as any);
   const key = talkKey(p, JSON.stringify([p.talk.music, p.talk.musicWhy, p.style, L.cues.length, 'm3']));
   const out = `talk/mix-${key}.wav`;
@@ -328,13 +329,13 @@ export async function talkMix(pid: string, log: Log) {
   const music = pick === 'none' ? false : { genre: pick, bpm: Math.min(96, S.music.bpm), key: S.music.key };
   const mixed = score({ duration: L.duration, revealAt: 0, endAt: L.duration, cues: L.cues as any, vo: [{ t: 0, pcm }], music, seed: 7, voPresence: 0.05, musicGain: 0.55 } as any);
   fs.writeFileSync(projectPath(pid, out), wav(mixed.L, mixed.R));
-  updateProject(pid, (pp) => { pp.talk.mix = out; });
+  await updateProject(pid, (pp) => { pp.talk.mix = out; });
   return out;
 }
 
 /** Cut + crop the speaker to exactly the speaker box of a format/layout. Proxy = half size with the mix, for preview. */
 export async function buildCut(pid: string, fmt: FormatId, quality: 'proxy' | 'full', log: Log) {
-  const p = getProject(pid); const lay = p.talk.layout || 'split';
+  const p = await getProject(pid); const lay = p.talk.layout || 'split';
   const box = speakerBox(fmt, lay); const q = quality === 'proxy' ? 0.5 : 1; const W = even(box.w * q), H = even(box.h * q);
   const key = talkKey(p, [fmt, lay, quality].join('|'));
   const out = `talk/${quality}-${fmt}-${lay}-${key}.mp4`;
@@ -348,27 +349,27 @@ export async function buildCut(pid: string, fmt: FormatId, quality: 'proxy' | 'f
     args.push('-i', projectPath(pid, mix), '-filter_complex', graph, '-map', '[vout]', '-map', `${inputs.length}:a`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '30', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-shortest', '-movflags', '+faststart', projectPath(pid, out));
   } else args.push('-filter_complex', graph, '-map', '[vout]', '-an', '-c:v', 'libx264', '-preset', 'medium', '-crf', '16', '-pix_fmt', 'yuv420p', projectPath(pid, out));
   await ffmpeg(args);
-  if (quality === 'proxy') updateProject(pid, (pp) => { pp.talk.proxies = { ...pp.talk.proxies, [`${fmt}:${lay}`]: out }; });
+  if (quality === 'proxy') await updateProject(pid, (pp) => { pp.talk.proxies = { ...pp.talk.proxies, [`${fmt}:${lay}`]: out }; });
   return out;
 }
 
 /** Rebuild preview proxies even if the cut is unchanged (e.g. the music bed changed). */
 export async function buildProxiesFresh(pid: string, log: Log) {
-  const p = getProject(pid);
+  const p = await getProject(pid);
   for (const f of p.intake.formats) { const lay = p.talk.layout || 'split'; const key = talkKey(p, [f, lay, 'proxy'].join('|')); const out = projectPath(pid, `talk/proxy-${f}-${lay}-${key}.mp4`); try { fs.rmSync(out, { force: true }); } catch {} await buildCut(pid, f, 'proxy', log); }
 }
 
 export async function buildProxies(pid: string, log: Log) {
-  const p = getProject(pid);
+  const p = await getProject(pid);
   for (const f of p.intake.formats) await buildCut(pid, f, 'proxy', log);
 }
 
 // ───────────────────────── final render ─────────────────────────
 export async function renderTalk(pid: string, formats: FormatId[], log: Log) {
-  let p = getProject(pid);
+  let p = await getProject(pid);
   if (!p.talk.beats.length) throw new Error('There is no edit yet.');
   const mix = await talkMix(pid, log);
-  p = getProject(pid);
+  p = await getProject(pid);
   const comp = toComposition(p);
   const L = talkLayout(comp as any);
   const total = Math.ceil(L.duration * FPS);
@@ -415,8 +416,8 @@ export async function renderTalk(pid: string, formats: FormatId[], log: Log) {
       outs.push({ id: 'r' + newId().slice(0, 6), format: fmt, file: rel, at: new Date().toISOString(), duration: L.duration, bytes: fs.statSync(projectPath(pid, rel)).size, srt: `renders/${name}_talk.srt` });
     }
   } finally { await browser.close(); srv.close(); fs.rmSync(tmp, { recursive: true, force: true }); }
-  fs.writeFileSync(projectPath(pid, `renders/${name}_talk.srt`), talkSrt(pid));
-  updateProject(pid, (pp) => { pp.renders = [...outs, ...pp.renders.filter((r) => !outs.some((o) => o.file === r.file))]; pp.stage = 'done'; });
+  fs.writeFileSync(projectPath(pid, `renders/${name}_talk.srt`), await talkSrt(pid));
+  await updateProject(pid, (pp) => { pp.renders = [...outs, ...pp.renders.filter((r) => !outs.some((o) => o.file === r.file))]; pp.stage = 'done'; });
   log(`Done: ${outs.map((o) => o.format).join(', ')}`, 100);
   return outs;
 }
@@ -426,7 +427,7 @@ function groupCaptions(ws: { w: string; s: number; e: number }[]) {
   ws.forEach((w, i) => { if (!cur || cur.words.length >= 5 || /[.!?,]$/.test(ws[i - 1]?.w || '') || w.s - cur.end > 0.5) { cur = { start: w.s, end: w.e, words: [] }; out.push(cur); } cur.words.push({ w: w.w, t: w.s }); cur.end = w.e; });
   return out;
 }
-function talkSrt(pid: string) {
+async function talkSrt(pid: string) {
   const ts = (x: number) => { const ms = Math.round(x * 1000); const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000), s = Math.floor((ms % 60000) / 1000); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms % 1000).padStart(3, '0')}`; };
-  return (getProject(pid).talk.captions as any[]).map((c, i) => `${i + 1}\n${ts(c.start)} --> ${ts(c.end + 0.2)}\n${c.words.map((w: any) => w.w).join(' ')}\n`).join('\n');
+  return ((await getProject(pid)).talk.captions as any[]).map((c, i) => `${i + 1}\n${ts(c.start)} --> ${ts(c.end + 0.2)}\n${c.words.map((w: any) => w.w).join(' ')}\n`).join('\n');
 }

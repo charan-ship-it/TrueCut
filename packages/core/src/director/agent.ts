@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config, ROOT } from '@truecut/config';
 import { getProject, newId, updateProject } from '@truecut/db';
+import { projectPath } from '@truecut/storage';
 import { addSource, ingestPath, ingestText, ingestUrl } from '../sources/ingest';
 import { analyze, storyboard, reviseScene, callTool } from '../ads/ai';
 import { voiceAll } from '../audio/voice';
@@ -13,9 +14,8 @@ import { renderProject } from '../render/render';
 import { castVoices } from '../ads/cast';
 import { ingestMedia, isMedia, planTalk, buildProxies, buildProxiesFresh, renderTalk, reviseBeat } from '../talk/talk';
 import { ffmpeg } from '../render/media';
-import { projectPath } from '@truecut/db';
 import { checkScenes } from '@truecut/shared/facts';
-import { startJob, type Log } from '@truecut/queue';
+import { defineHandler, enqueue, type Log } from '@truecut/queue';
 import { DIRECTIONS } from '@truecut/engine/styles.js';
 import type { Angle, ChatMsg, FormatId, Project } from '@truecut/shared/types';
 
@@ -33,44 +33,53 @@ export type Action =
 
 // ───────────── chat helpers ─────────────
 const now = () => new Date().toISOString();
-export function post(pid: string, m: Partial<ChatMsg> & { role: ChatMsg['role'] }): string {
+export async function post(pid: string, m: Partial<ChatMsg> & { role: ChatMsg['role'] }): Promise<string> {
   const id = 'm' + newId().slice(0, 8);
-  updateProject(pid, (p) => { p.chat.push({ id, text: '', cards: [], replies: [], attachments: [], at: now(), ...m } as ChatMsg); });
+  await updateProject(pid, (p) => { p.chat.push({ id, text: '', cards: [], replies: [], attachments: [], at: now(), ...m } as ChatMsg); });
   return id;
 }
-function patchMsg(pid: string, id: string, fn: (m: ChatMsg) => void) { updateProject(pid, (p) => { const m = p.chat.find((x) => x.id === id); if (m) fn(m); }); }
+async function patchMsg(pid: string, id: string, fn: (m: ChatMsg) => void) { await updateProject(pid, (p) => { const m = p.chat.find((x) => x.id === id); if (m) fn(m); }); }
 
-/** A live "working" card: a checklist of steps that fill in as the job runs. */
-function progress(pid: string, jobId: string, title: string) {
-  const id = post(pid, { role: 'nick', jobId, cards: [{ kind: 'progress', title, steps: [], done: false }] });
+/** A live "working" card: a checklist of steps that fill in as the job runs. Card writes are queued on one
+ *  chain so they land in order; step/fail/finish return that chain so callers can wait for it. */
+async function progress(pid: string, jobId: string, title: string) {
+  const id = await post(pid, { role: 'nick', jobId, cards: [{ kind: 'progress', title, steps: [], done: false }] });
   let last = 0;
-  const card = (fn: (c: any) => void) => patchMsg(pid, id, (m) => { const c = m.cards.find((x: any) => x.kind === 'progress'); if (c) fn(c); });
+  let chain: Promise<void> = Promise.resolve();
+  const card = (fn: (c: any) => void) => {
+    chain = chain.then(() => patchMsg(pid, id, (m) => { const c = m.cards.find((x: any) => x.kind === 'progress'); if (c) fn(c); })).catch((e) => console.error('[progress]', e?.message));
+    return chain;
+  };
   return {
     id,
-    step(label: string) { card((c) => { for (const s of c.steps) if (s.state === 'run') s.state = 'ok'; c.steps.push({ label, state: 'run', detail: '' }); }); },
-    detail(d: string) { const t = Date.now(); if (t - last < 500) return; last = t; card((c) => { const s = c.steps[c.steps.length - 1]; if (s) s.detail = d; }); },
-    fail(err: string) { card((c) => { const s = c.steps[c.steps.length - 1]; if (s) { s.state = 'err'; s.detail = err; } }); },
-    finish(title?: string) { card((c) => { for (const s of c.steps) if (s.state === 'run') s.state = 'ok'; c.done = true; if (title) c.title = title; }); },
+    step(label: string) { return card((c) => { for (const s of c.steps) if (s.state === 'run') s.state = 'ok'; c.steps.push({ label, state: 'run', detail: '' }); }); },
+    detail(d: string) { const t = Date.now(); if (t - last < 500) return; last = t; void card((c) => { const s = c.steps[c.steps.length - 1]; if (s) s.detail = d; }); },
+    fail(err: string) { return card((c) => { const s = c.steps[c.steps.length - 1]; if (s) { s.state = 'err'; s.detail = err; } }); },
+    finish(title?: string) { return card((c) => { for (const s of c.steps) if (s.state === 'run') s.state = 'ok'; c.done = true; if (title) c.title = title; }); },
   };
 }
-type Prog = ReturnType<typeof progress>;
+type Prog = Awaited<ReturnType<typeof progress>>;
 const sublog = (pr: Prog): Log => (msg) => pr.detail(msg);
 
 // ───────────── entry point ─────────────
-export function startTurn(pid: string, action: Action) {
-  const p = getProject(pid);
+/** Post the user's message, mark Nick busy and queue the turn. The turn itself runs as a "nick" job. */
+export async function startTurn(pid: string, action: Action, opts: { createdBy?: string | null } = {}) {
+  const p = await getProject(pid);
   if (action.type === 'message' || action.type === 'reply') {
-    post(pid, { role: 'user', text: action.text, attachments: action.type === 'message' ? action.attachments || [] : [] });
+    await post(pid, { role: 'user', text: action.text, attachments: action.type === 'message' ? action.attachments || [] : [] });
   } else {
-    post(pid, { role: 'user', text: userEcho(p, action) });
+    await post(pid, { role: 'user', text: userEcho(p, action) });
   }
-  updateProject(pid, (pp) => { pp.agentBusy = true; });
-  return startJob('nick', pid, async (log, job) => {
-    try { await turn(pid, action, job.id); }
-    catch (e: any) { post(pid, { role: 'nick', text: `Something went wrong: ${e.message}`, cards: [{ kind: 'error', message: e.message }], replies: ['Try again'] }); throw e; }
-    finally { updateProject(pid, (pp) => { pp.agentBusy = false; }); }
-  });
+  await updateProject(pid, (pp) => { pp.agentBusy = true; });
+  return enqueue('nick', pid, { action }, opts);
 }
+
+defineHandler<{ action: Action }>('nick', async ({ action }, { job }) => {
+  const pid = job.projectId!;
+  try { await turn(pid, action, job.id); }
+  catch (e: any) { await post(pid, { role: 'nick', text: `Something went wrong: ${e.message}`, cards: [{ kind: 'error', message: e.message }], replies: ['Try again'] }); throw e; }
+  finally { await updateProject(pid, (pp) => { pp.agentBusy = false; }); }
+});
 
 function userEcho(p: Project, a: Action): string {
   switch (a.type) {
@@ -94,12 +103,12 @@ async function turn(pid: string, a: Action, jobId: string) {
   const text = a.text || '';
   const atts = a.type === 'message' ? a.attachments || [] : [];
   const found = [...atts, ...detectSources(text)];
-  const p = getProject(pid);
+  const p = await getProject(pid);
   if (found.length) return intake(pid, found, text, jobId);
   if (!p.sources.length) {
     // just notes, no links: treat substantial text as a source
     if (text.trim().length > 140) return intake(pid, [{ kind: 'text', label: 'Your notes', ref: text }], '', jobId);
-    post(pid, { role: 'nick', text: "Drop me something to read first: your website, a repo or folder path, a doc, or paste your notes. I'll pull the real facts and screenshots out of it.", replies: ['https://aixccelerate.com', 'Use the Agent Nick repo'] });
+    await post(pid, { role: 'nick', text: "Drop me something to read first: your website, a repo or folder path, a doc, or paste your notes. I'll pull the real facts and screenshots out of it.", replies: ['https://aixccelerate.com', 'Use the Agent Nick repo'] });
     return;
   }
   return interpret(pid, text, jobId);
@@ -107,50 +116,50 @@ async function turn(pid: string, a: Action, jobId: string) {
 
 // ───────────── 1. intake → analyse → questions ─────────────
 async function intake(pid: string, items: Attachment[], text: string, jobId: string) {
-  const pr = progress(pid, jobId, 'Reading your sources');
-  const before = getProject(pid);
+  const pr = await progress(pid, jobId, 'Reading your sources');
+  const before = await getProject(pid);
   for (const it of items) {
     if (it.kind === 'upload') continue; // already ingested by the upload route
-    const s = addSource(pid, it.kind as any, it.ref, it.kind === 'text' ? it.label : undefined);
+    const s = await addSource(pid, it.kind as any, it.ref, it.kind === 'text' ? it.label : undefined);
     try {
-      if (it.kind === 'url') { pr.step(`Visiting ${it.label}`); let u = it.ref.trim(); if (!/^https?:\/\//i.test(u)) u = 'https://' + u; await ingestUrl(pid, s.id, u, sublog(pr)); }
+      if (it.kind === 'url') { await pr.step(`Visiting ${it.label}`); let u = it.ref.trim(); if (!/^https?:\/\//i.test(u)) u = 'https://' + u; await ingestUrl(pid, s.id, u, sublog(pr)); }
       else if (it.kind === 'path') { const abs = path.resolve(ROOT, it.ref.trim().replace(/^~(?=\/)/, process.env.HOME || '~'));
-        if (isMedia(abs) && fs.existsSync(abs) && fs.statSync(abs).isFile()) { pr.step(`Transcribing ${it.label}`); await ingestMedia(pid, s.id, abs, path.basename(abs), sublog(pr)); }
-        else { pr.step(`Reading ${it.label}`); await ingestPath(pid, s.id, abs, sublog(pr)); } }
-      else { pr.step('Reading your notes'); ingestText(pid, s.id, it.ref); }
+        if (isMedia(abs) && fs.existsSync(abs) && fs.statSync(abs).isFile()) { await pr.step(`Transcribing ${it.label}`); await ingestMedia(pid, s.id, abs, path.basename(abs), sublog(pr)); }
+        else { await pr.step(`Reading ${it.label}`); await ingestPath(pid, s.id, abs, sublog(pr)); } }
+      else { await pr.step('Reading your notes'); await ingestText(pid, s.id, it.ref); }
     } catch (e: any) {
-      updateProject(pid, (p) => { const x = p.sources.find((y) => y.id === s.id); if (x) { x.status = 'error'; x.error = e.message; } });
-      pr.fail(e.message);
+      await updateProject(pid, (p) => { const x = p.sources.find((y) => y.id === s.id); if (x) { x.status = 'error'; x.error = e.message; } });
+      await pr.fail(e.message);
     }
   }
   if (text && items.every((i) => i.kind !== 'text') && text.replace(/\S*\/\S*|\bhttps?:\S+/g, '').trim().length > 60) {
-    const s = addSource(pid, 'text', 'notes', 'Notes from chat'); ingestText(pid, s.id, text);
+    const s = await addSource(pid, 'text', 'notes', 'Notes from chat'); await ingestText(pid, s.id, text);
   }
   // uploaded recordings → transcribe
-  for (const src of getProject(pid).sources.filter((x) => x.meta?.mediaFile && !x.meta?.media && x.status === 'pending')) {
-    pr.step(`Transcribing ${src.meta!.name || src.label}`);
+  for (const src of (await getProject(pid)).sources.filter((x) => x.meta?.mediaFile && !x.meta?.media && x.status === 'pending')) {
+    await pr.step(`Transcribing ${src.meta!.name || src.label}`);
     try { await ingestMedia(pid, src.id, projectPath(pid, src.meta!.mediaFile), src.meta!.name || src.label, sublog(pr)); }
-    catch (e: any) { updateProject(pid, (p) => { const x = p.sources.find((y) => y.id === src.id); if (x) { x.status = 'error'; x.error = e.message; } }); pr.fail(e.message); }
+    catch (e: any) { await updateProject(pid, (p) => { const x = p.sources.find((y) => y.id === src.id); if (x) { x.status = 'error'; x.error = e.message; } }); await pr.fail(e.message); }
   }
-  const p = getProject(pid);
+  const p = await getProject(pid);
   const added = p.sources.filter((s) => !before.sources.some((b) => b.id === s.id) || items.some((i) => i.kind === 'upload' && i.ref === s.id));
-  if (!p.sources.some((s) => s.status === 'ready')) { pr.finish("Couldn't read that"); post(pid, { role: 'nick', text: "I couldn't read any of that. Check the link or path and try again, or paste the text directly." }); return; }
+  if (!p.sources.some((s) => s.status === 'ready')) { await pr.finish("Couldn't read that"); await post(pid, { role: 'nick', text: "I couldn't read any of that. Check the link or path and try again, or paste the text directly." }); return; }
   if (p.talk.media.length) return talkIntake(pid, pr, added.map((x) => x.id));
-  pr.step('Pulling out facts, numbers and visuals');
+  await pr.step('Pulling out facts, numbers and visuals');
   await analyze(pid, sublog(pr));
-  pr.step('Fact-checking every claim against the source');
-  pr.finish('Read and fact-checked');
-  const q = getProject(pid);
-  if (/^Untitled video/.test(q.name) && q.intake.productName && !/^Untitled/.test(q.intake.productName)) updateProject(pid, (pp) => { pp.name = `${q.intake.productName} video`; });
+  await pr.step('Fact-checking every claim against the source');
+  await pr.finish('Read and fact-checked');
+  const q = await getProject(pid);
+  if (/^Untitled video/.test(q.name) && q.intake.productName && !/^Untitled/.test(q.intake.productName)) await updateProject(pid, (pp) => { pp.name = `${q.intake.productName} video`; });
   const verified = q.facts.filter((f) => f.status === 'verified').length;
   const shots = q.visuals.filter((v) => v.use).length;
-  post(pid, {
+  await post(pid, {
     role: 'nick',
     text: summaryLine(q, verified, shots),
     cards: [{ kind: 'sources', ids: added.map((s) => s.id) }, { kind: 'facts' }],
   });
-  updateProject(pid, (pp) => { pp.stage = 'questions'; });
-  post(pid, { role: 'nick', text: "A few things only you know. I've pre-filled my best guesses, so change what's wrong and send.", cards: [{ kind: 'questions' }] });
+  await updateProject(pid, (pp) => { pp.stage = 'questions'; });
+  await post(pid, { role: 'nick', text: "A few things only you know. I've pre-filled my best guesses, so change what's wrong and send.", cards: [{ kind: 'questions' }] });
 }
 
 function summaryLine(p: Project, verified: number, shots: number) {
@@ -161,19 +170,19 @@ function summaryLine(p: Project, verified: number, shots: number) {
 
 // ───────────── founder talk ─────────────
 async function talkIntake(pid: string, pr: Prog, added: string[]) {
-  const p = getProject(pid);
+  const p = await getProject(pid);
   const others = p.sources.filter((s) => s.status === 'ready' && !s.meta?.media && s.textFile);
-  if (others.length && !p.facts.length) { pr.step('Reading your other sources for brand, facts and screenshots'); await analyze(pid, sublog(pr)); }
-  pr.finish('Transcribed');
-  const q = getProject(pid); const m = q.talk.media[q.talk.media.length - 1];
-  if (/^Untitled video/.test(q.name) || q.name === m.name) updateProject(pid, (pp) => { pp.name = m.name.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' '); });
-  post(pid, { role: 'nick', text: `Got the recording: **${fmtMin(m.duration)}**, ${m.words} words${m.speakers.length > 1 ? `, ${m.speakers.length} speakers` : ''}. Here's the transcript. Tell me who's speaking and how long you want it, and I'll cut it, then design an illustration for every beat. The audio is always the speaker's own voice. I never re-voice a founder.`, cards: [{ kind: 'transcript' }, ...(added.some((id) => !q.sources.find((s) => s.id === id)?.meta?.media) ? [{ kind: 'sources', ids: added }] : []), { kind: 'talkbrief' }] });
-  updateProject(pid, (pp) => { pp.stage = 'questions'; });
+  if (others.length && !p.facts.length) { await pr.step('Reading your other sources for brand, facts and screenshots'); await analyze(pid, sublog(pr)); }
+  await pr.finish('Transcribed');
+  const q = await getProject(pid); const m = q.talk.media[q.talk.media.length - 1];
+  if (/^Untitled video/.test(q.name) || q.name === m.name) await updateProject(pid, (pp) => { pp.name = m.name.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' '); });
+  await post(pid, { role: 'nick', text: `Got the recording: **${fmtMin(m.duration)}**, ${m.words} words${m.speakers.length > 1 ? `, ${m.speakers.length} speakers` : ''}. Here's the transcript. Tell me who's speaking and how long you want it, and I'll cut it, then design an illustration for every beat. The audio is always the speaker's own voice. I never re-voice a founder.`, cards: [{ kind: 'transcript' }, ...(added.some((id) => !q.sources.find((s) => s.id === id)?.meta?.media) ? [{ kind: 'sources', ids: added }] : []), { kind: 'talkbrief' }] });
+  await updateProject(pid, (pp) => { pp.stage = 'questions'; });
 }
 const fmtMin = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
 async function cutTalk(pid: string, brief: Record<string, any>, jobId: string, instruction = '') {
-  updateProject(pid, (p) => {
+  await updateProject(pid, (p) => {
     if (brief.length) p.intake.length = Math.max(10, Math.min(180, Number(brief.length) || p.intake.length));
     if (brief.layout === 'split' || brief.layout === 'overlay') p.talk.layout = brief.layout;
     if (brief.music) p.talk.music = brief.music;
@@ -185,30 +194,30 @@ async function cutTalk(pid: string, brief: Record<string, any>, jobId: string, i
     if (brief.note != null) p.talk.instruction = String(brief.note);
     if (brief.productName) p.intake.productName = brief.productName;
   });
-  const pr = progress(pid, jobId, 'Editing the talk');
-  pr.step('Choosing the strongest moments and designing each beat');
+  const pr = await progress(pid, jobId, 'Editing the talk');
+  await pr.step('Choosing the strongest moments and designing each beat');
   await planTalk(pid, sublog(pr), instruction);
-  pr.step('Cutting the speaker and scoring the bed');
+  await pr.step('Cutting the speaker and scoring the bed');
   await buildProxies(pid, sublog(pr));
-  pr.finish('Edit ready');
-  const p = getProject(pid); const m = p.talk.media[0];
+  await pr.finish('Edit ready');
+  const p = await getProject(pid); const m = p.talk.media[0];
   const kinds = [...new Set(p.talk.beats.map((b) => b.visual?.kind))];
-  post(pid, { role: 'nick', text: `Cut **${fmtMin(m.duration)} → ${p.talk.duration.toFixed(0)}s**, ${p.talk.beats.length} beats, ${kinds.length} kinds of illustration. It's playing on the right with the real audio. Every number on screen is one the speaker actually said.`, cards: [{ kind: 'edit' }, { kind: 'directions' }], replies: ['Render it', 'Make it shorter', 'Switch to overlay layout', 'Try another look'] });
+  await post(pid, { role: 'nick', text: `Cut **${fmtMin(m.duration)} → ${p.talk.duration.toFixed(0)}s**, ${p.talk.beats.length} beats, ${kinds.length} kinds of illustration. It's playing on the right with the real audio. Every number on screen is one the speaker actually said.`, cards: [{ kind: 'edit' }, { kind: 'directions' }], replies: ['Render it', 'Make it shorter', 'Switch to overlay layout', 'Try another look'] });
 }
 
 // ───────────── 2. answers → angles ─────────────
 async function afterAnswers(pid: string, answers: Record<string, string>, jobId: string) {
-  updateProject(pid, (p) => {
+  await updateProject(pid, (p) => {
     for (const q of p.questions) if (answers[q.id] != null) q.answer = String(answers[q.id]);
     for (const [k, v] of Object.entries(answers)) if (k.startsWith('intake.')) (p.intake as any)[k.slice(7)] = k === 'intake.length' ? Number(v) || p.intake.length : v;
     p.stage = 'storyboard';
   });
-  const pr = progress(pid, jobId, 'Finding the story');
-  pr.step('Looking for the sharpest angles in your facts');
+  const pr = await progress(pid, jobId, 'Finding the story');
+  await pr.step('Looking for the sharpest angles in your facts');
   const angles = await proposeAngles(pid);
-  updateProject(pid, (p) => { p.angles = angles; });
-  pr.finish('Three ways to tell it');
-  post(pid, { role: 'nick', text: 'Here are three different ways to tell this story. Pick one, or tell me what you have in mind.', cards: [{ kind: 'angles' }] });
+  await updateProject(pid, (p) => { p.angles = angles; });
+  await pr.finish('Three ways to tell it');
+  await post(pid, { role: 'nick', text: 'Here are three different ways to tell this story. Pick one, or tell me what you have in mind.', cards: [{ kind: 'angles' }] });
 }
 
 const ANGLE_TOOL = {
@@ -222,7 +231,7 @@ const ANGLE_TOOL = {
 };
 
 async function proposeAngles(pid: string): Promise<Angle[]> {
-  const p = getProject(pid);
+  const p = await getProject(pid);
   const facts = p.facts.filter((f) => f.approved).slice(0, 40).map((f) => `${f.id} [${f.kind}] ${f.statement}`).join('\n');
   const qa = p.questions.map((q) => `Q: ${q.question}\nA: ${q.answer || q.suggested}`).join('\n');
   if (config.anthropicKey) {
@@ -248,73 +257,73 @@ async function proposeAngles(pid: string): Promise<Angle[]> {
 
 // ───────────── 3. angle → direction → storyboard ─────────────
 async function pickAngle(pid: string, angleId: string, jobId: string) {
-  const ang = getProject(pid).angles.find((a) => a.id === angleId);
+  const ang = (await getProject(pid)).angles.find((a) => a.id === angleId);
   if (!ang) throw new Error('That angle is no longer available.');
-  updateProject(pid, (p) => { p.angleId = angleId; p.style = { preset: ang.preset, why: ang.why }; });
+  await updateProject(pid, (p) => { p.angleId = angleId; p.style = { preset: ang.preset, why: ang.why }; });
   await writeStory(pid, jobId);
 }
 
 async function setDirection(pid: string, preset: string, jobId: string, announce: boolean) {
   if (!DIRECTIONS[preset]) throw new Error('Unknown direction');
-  updateProject(pid, (p) => { p.style = { ...(p.style || {}), preset }; p.audioHash = undefined; });
-  if (announce) post(pid, { role: 'nick', text: `Switched to **${DIRECTIONS[preset].label}**: ${DIRECTIONS[preset].vibe} The preview on the right has updated, and the music changes with it.`, replies: ['Render it', 'Make it punchier', 'Try another look'] });
+  await updateProject(pid, (p) => { p.style = { ...(p.style || {}), preset }; p.audioHash = undefined; });
+  if (announce) await post(pid, { role: 'nick', text: `Switched to **${DIRECTIONS[preset].label}**: ${DIRECTIONS[preset].vibe} The preview on the right has updated, and the music changes with it.`, replies: ['Render it', 'Make it punchier', 'Try another look'] });
 }
 
 async function writeStory(pid: string, jobId: string) {
-  const pr = progress(pid, jobId, 'Writing the storyboard');
-  pr.step('Writing scenes from your verified facts');
+  const pr = await progress(pid, jobId, 'Writing the storyboard');
+  await pr.step('Writing scenes from your verified facts');
   await storyboard(pid, sublog(pr));
-  pr.step('Running the fact guard');
-  if (config.elevenKey) { pr.step('Casting the voice and choosing the score'); try { await castVoices(pid, sublog(pr)); } catch (e: any) { pr.fail(e.message); } }
-  pr.finish('Storyboard ready');
-  const p = getProject(pid);
+  await pr.step('Running the fact guard');
+  if (config.elevenKey) { await pr.step('Casting the voice and choosing the score'); try { await castVoices(pid, sublog(pr)); } catch (e: any) { await pr.fail(e.message); } }
+  await pr.finish('Storyboard ready');
+  const p = await getProject(pid);
   const errs = checkScenes(p).filter((i) => i.level === 'error');
   const words = p.scenes.reduce((a, s) => a + (s.vo?.text || '').split(/\s+/).filter(Boolean).length, 0);
-  post(pid, {
+  await post(pid, {
     role: 'nick',
     text: `${p.scenes.length} scenes, ${words} spoken words, in the **${DIRECTIONS[p.style?.preset || 'signal']?.label}** direction. It's playing on the right.${errs.length ? ` ⚠ ${errs.length} line(s) use something I couldn't trace. They're flagged below.` : ' Every number on screen traces back to a source.'}`,
-    cards: [{ kind: 'storyboard' }, ...(getProject(pid).cast.members.length ? [{ kind: 'cast' }] : []), { kind: 'directions' }],
+    cards: [{ kind: 'storyboard' }, ...((await getProject(pid)).cast.members.length ? [{ kind: 'cast' }] : []), { kind: 'directions' }],
     replies: ['Render it', 'Make the hook punchier', 'Try a different voice', 'Try another look'],
   });
 }
 
 // ───────────── 4. render ─────────────
 async function render(pid: string, formats: FormatId[] | undefined, jobId: string) {
-  let p = getProject(pid);
+  let p = await getProject(pid);
   if (p.kind === 'talk') {
-    if (!p.talk.beats.length) { post(pid, { role: 'nick', text: "I haven't cut the talk yet. Fill in the brief above and hit Cut it.", replies: [] }); return; }
+    if (!p.talk.beats.length) { await post(pid, { role: 'nick', text: "I haven't cut the talk yet. Fill in the brief above and hit Cut it.", replies: [] }); return; }
     const fm0 = (formats?.length ? formats : p.intake.formats) as FormatId[];
-    const pr0 = progress(pid, jobId, 'Rendering the talk');
+    const pr0 = await progress(pid, jobId, 'Rendering the talk');
     pr0.step(`Compositing ${fm0.map((f) => f.replace('x', ':')).join(' + ')} at full quality`);
     const before0 = new Set(p.renders.map((r) => r.id));
     await renderTalk(pid, fm0, sublog(pr0));
-    const fresh0 = getProject(pid).renders.filter((r) => !before0.has(r.id));
+    const fresh0 = (await getProject(pid)).renders.filter((r) => !before0.has(r.id));
     await makePoster(pid, fresh0);
     pr0.finish('Rendered');
-    post(pid, { role: 'nick', text: 'Done. Want a variation? I can tighten it, swap the layout, change the look, or redraw any beat.', cards: [{ kind: 'render', ids: fresh0.map((r) => r.id) }], replies: ['Cut a 30s version', 'Switch to overlay layout', 'Try another look'] });
+    await post(pid, { role: 'nick', text: 'Done. Want a variation? I can tighten it, swap the layout, change the look, or redraw any beat.', cards: [{ kind: 'render', ids: fresh0.map((r) => r.id) }], replies: ['Cut a 30s version', 'Switch to overlay layout', 'Try another look'] });
     return;
   }
-  if (!p.scenes.length) { post(pid, { role: 'nick', text: "There's no storyboard yet. Let me write one first.", replies: ['Write the storyboard'] }); return; }
+  if (!p.scenes.length) { await post(pid, { role: 'nick', text: "There's no storyboard yet. Let me write one first.", replies: ['Write the storyboard'] }); return; }
   const fm = (formats?.length ? formats : p.intake.formats) as FormatId[];
-  const pr = progress(pid, jobId, 'Making your video');
-  if (config.elevenKey && !getProject(pid).cast.members.length) { pr.step('Casting the voice'); try { await castVoices(pid, sublog(pr)); } catch (e: any) { pr.fail(e.message); } }
-  if (config.elevenKey) { const c = getProject(pid).cast; pr.step(`Recording the voice-over${c.members.length ? ` (${c.members.map((m) => m.name).join(' + ')})` : ''}`); try { await voiceAll(pid, sublog(pr)); } catch (e: any) { pr.fail(e.message); } }
-  else pr.step('No voice key set, so rendering with music and captions only');
-  pr.step('Scoring music and sound design');
+  const pr = await progress(pid, jobId, 'Making your video');
+  if (config.elevenKey && !(await getProject(pid)).cast.members.length) { await pr.step('Casting the voice'); try { await castVoices(pid, sublog(pr)); } catch (e: any) { await pr.fail(e.message); } }
+  if (config.elevenKey) { const c = (await getProject(pid)).cast; await pr.step(`Recording the voice-over${c.members.length ? ` (${c.members.map((m) => m.name).join(' + ')})` : ''}`); try { await voiceAll(pid, sublog(pr)); } catch (e: any) { await pr.fail(e.message); } }
+  else await pr.step('No voice key set, so rendering with music and captions only');
+  await pr.step('Scoring music and sound design');
   await buildAudio(pid, sublog(pr));
-  pr.step(`Rendering ${fm.map((f) => f.replace('x', ':')).join(' + ')}`);
-  const before = new Set(getProject(pid).renders.map((r) => r.id));
+  await pr.step(`Rendering ${fm.map((f) => f.replace('x', ':')).join(' + ')}`);
+  const before = new Set((await getProject(pid)).renders.map((r) => r.id));
   await renderProject(pid, fm, sublog(pr));
-  p = getProject(pid);
+  p = await getProject(pid);
   const fresh = p.renders.filter((r) => !before.has(r.id));
   await makePoster(pid, fresh);
-  pr.finish('Rendered');
-  post(pid, { role: 'nick', text: 'Done. Here it is. Want a variation? I can change the look, tighten it, or cut a 15-second version.', cards: [{ kind: 'render', ids: fresh.map((r) => r.id) }], replies: ['Cut a 15s version', 'Try another look', 'Make it punchier'] });
+  await pr.finish('Rendered');
+  await post(pid, { role: 'nick', text: 'Done. Here it is. Want a variation? I can change the look, tighten it, or cut a 15-second version.', cards: [{ kind: 'render', ids: fresh.map((r) => r.id) }], replies: ['Cut a 15s version', 'Try another look', 'Make it punchier'] });
 }
 
 async function makePoster(pid: string, fresh: { id: string; file: string; duration: number; format: string }[]) {
   const first = fresh.find((r) => r.format === '4x5') || fresh[0]; if (!first) return;
-  try { const poster = `renders/poster-${first.id}.jpg`; await ffmpeg(['-ss', String(Math.min(2.2, first.duration / 3)), '-i', projectPath(pid, first.file), '-frames:v', '1', '-vf', 'scale=540:-2', '-q:v', '4', projectPath(pid, poster)]); updateProject(pid, (pp) => { pp.product = { ...(pp.product || {}), poster }; }); } catch {}
+  try { const poster = `renders/poster-${first.id}.jpg`; await ffmpeg(['-ss', String(Math.min(2.2, first.duration / 3)), '-i', projectPath(pid, first.file), '-frames:v', '1', '-vf', 'scale=540:-2', '-q:v', '4', projectPath(pid, poster)]); await updateProject(pid, (pp) => { pp.product = { ...(pp.product || {}), poster }; }); } catch {}
 }
 
 // ───────────── free-form: interpret the message ─────────────
@@ -332,7 +341,7 @@ const DECIDE_TOOL = {
 };
 
 async function interpret(pid: string, text: string, jobId: string) {
-  const p = getProject(pid);
+  const p = await getProject(pid);
   if (p.kind === 'talk') return interpretTalk(pid, text, jobId);
   const quick = rules(text, p);
   let plan: { reply: string; actions: any[] } | null = quick;
@@ -345,44 +354,44 @@ async function interpret(pid: string, text: string, jobId: string) {
     });
   }
   if (!plan) {
-    post(pid, { role: 'nick', text: "Without an AI key I can only do the basics: pick a look, change the length, write the storyboard, or render. Add ANTHROPIC_API_KEY to unlock free-form edits.", replies: ['Write the storyboard', 'Render it', 'Try another look'] });
+    await post(pid, { role: 'nick', text: "Without an AI key I can only do the basics: pick a look, change the length, write the storyboard, or render. Add ANTHROPIC_API_KEY to unlock free-form edits.", replies: ['Write the storyboard', 'Render it', 'Try another look'] });
     return;
   }
-  if (plan.reply) post(pid, { role: 'nick', text: plan.reply });
+  if (plan.reply) await post(pid, { role: 'nick', text: plan.reply });
   let restory = false; let changed = false;
   for (const ac of plan.actions || []) {
-    if (ac.do === 'set_length' && ac.length) { updateProject(pid, (pp) => { pp.intake.length = Math.max(10, Math.min(60, Math.round(ac.length))); }); restory = true; }
-    if (ac.do === 'set_brief' && ac.brief) { updateProject(pid, (pp) => { Object.assign(pp.intake, ac.brief); }); changed = true; }
+    if (ac.do === 'set_length' && ac.length) { await updateProject(pid, (pp) => { pp.intake.length = Math.max(10, Math.min(60, Math.round(ac.length))); }); restory = true; }
+    if (ac.do === 'set_brief' && ac.brief) { await updateProject(pid, (pp) => { Object.assign(pp.intake, ac.brief); }); changed = true; }
     if (ac.do === 'set_direction' && ac.preset) { await setDirection(pid, ac.preset, jobId, true); }
-    if (ac.do === 'propose_angles') { const angles = await proposeAngles(pid); updateProject(pid, (pp) => { pp.angles = angles; }); post(pid, { role: 'nick', text: 'Fresh angles:', cards: [{ kind: 'angles' }] }); }
-    if (ac.do === 'restoryboard') { if (ac.instruction) updateProject(pid, (pp) => { pp.intake.mustSay = [pp.intake.mustSay, ac.instruction].filter(Boolean).join(' · '); }); restory = true; }
-    if (ac.do === 'delete_scene' && ac.scene) { updateProject(pid, (pp) => { pp.scenes.splice(ac.scene - 1, 1); pp.audioHash = undefined; }); changed = true; }
+    if (ac.do === 'propose_angles') { const angles = await proposeAngles(pid); await updateProject(pid, (pp) => { pp.angles = angles; }); await post(pid, { role: 'nick', text: 'Fresh angles:', cards: [{ kind: 'angles' }] }); }
+    if (ac.do === 'restoryboard') { if (ac.instruction) await updateProject(pid, (pp) => { pp.intake.mustSay = [pp.intake.mustSay, ac.instruction].filter(Boolean).join(' · '); }); restory = true; }
+    if (ac.do === 'delete_scene' && ac.scene) { await updateProject(pid, (pp) => { pp.scenes.splice(ac.scene - 1, 1); pp.audioHash = undefined; }); changed = true; }
     if (ac.do === 'revise_scene' && ac.scene && ac.instruction) {
-      const sc = getProject(pid).scenes[ac.scene - 1];
-      if (sc) { const pr = progress(pid, jobId, `Revising scene ${ac.scene}`); pr.step(ac.instruction); await reviseScene(pid, sc.id, ac.instruction); pr.finish(`Scene ${ac.scene} revised`); changed = true; }
+      const sc = (await getProject(pid)).scenes[ac.scene - 1];
+      if (sc) { const pr = await progress(pid, jobId, `Revising scene ${ac.scene}`); await pr.step(ac.instruction); await reviseScene(pid, sc.id, ac.instruction); await pr.finish(`Scene ${ac.scene} revised`); changed = true; }
     }
     if (ac.do === 'recast') { await recast(pid, ac.instruction || text, jobId); }
     if (ac.do === 'render') { await render(pid, ac.formats, jobId); return; }
   }
   if (restory) return writeStory(pid, jobId);
-  if (changed) post(pid, { role: 'nick', text: 'Updated. The preview has the change.', cards: [{ kind: 'storyboard' }], replies: ['Render it', 'Try another look'] });
+  if (changed) await post(pid, { role: 'nick', text: 'Updated. The preview has the change.', cards: [{ kind: 'storyboard' }], replies: ['Render it', 'Try another look'] });
 }
 
 async function interpretTalk(pid: string, text: string, jobId: string) {
-  const p = getProject(pid);
-  if (!p.talk.beats.length) { post(pid, { role: 'nick', text: 'Fill in the brief above and hit **Cut it**: I need the speaker and the length before I edit.' }); return; }
+  const p = await getProject(pid);
+  if (!p.talk.beats.length) { await post(pid, { role: 'nick', text: 'Fill in the brief above and hit **Cut it**: I need the speaker and the length before I edit.' }); return; }
   const t = text.trim().toLowerCase();
   // the founder's voice is never replaced: answer requests to re-voice / dub / add a narrator
   if (/\b(voice ?over|re-?voice|dub|narrat|ai voice|different voice|another voice|new voice|\/voice)\b/.test(t) && !/music|bed|score/.test(t)) {
-    post(pid, { role: 'nick', text: "In founder talks the audio is always the founder's own recorded voice. I never replace, re-voice or add a synthetic narrator to it. I can change the music bed under it (lo-fi, piano, ambient, cinematic, bright, or none), the cut, the captions or the look.", replies: ['Music: piano', 'Music: none', 'Render it'] });
+    await post(pid, { role: 'nick', text: "In founder talks the audio is always the founder's own recorded voice. I never replace, re-voice or add a synthetic narrator to it. I can change the music bed under it (lo-fi, piano, ambient, cinematic, bright, or none), the cut, the captions or the look.", replies: ['Music: piano', 'Music: none', 'Render it'] });
     return;
   }
   const mus = t.match(/^(?:\/music|music:?|use)\s+(lo-?fi|piano|ambient|cinematic|bright|none|no music)\b/);
   if (mus) {
     const g = mus[1].replace('lo-fi', 'lofi').replace('no music', 'none');
-    updateProject(pid, (pp) => { pp.talk.music = g; pp.talk.mix = undefined; });
-    const pr = progress(pid, jobId, 'Re-scoring the bed'); pr.step(g === 'none' ? 'Founder voice only' : `A quiet ${g} bed under the founder's voice`); await buildProxiesFresh(pid, sublog(pr)); pr.finish('Bed updated');
-    post(pid, { role: 'nick', text: g === 'none' ? 'Music off. It\'s just the founder now.' : `Switched the bed to **${g}**, kept low under the founder's voice.`, cards: [{ kind: 'edit' }], replies: ['Render it'] });
+    await updateProject(pid, (pp) => { pp.talk.music = g; pp.talk.mix = undefined; });
+    const pr = await progress(pid, jobId, 'Re-scoring the bed'); await pr.step(g === 'none' ? 'Founder voice only' : `A quiet ${g} bed under the founder's voice`); await buildProxiesFresh(pid, sublog(pr)); await pr.finish('Bed updated');
+    await post(pid, { role: 'nick', text: g === 'none' ? 'Music off. It\'s just the founder now.' : `Switched the bed to **${g}**, kept low under the founder's voice.`, cards: [{ kind: 'edit' }], replies: ['Render it'] });
     return;
   }
   let plan = rules(text, p);
@@ -394,32 +403,32 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
     tool: DECIDE_TOOL,
     content: [{ type: 'text', text: `Length now: ${p.talk.duration.toFixed(0)}s (target ${p.intake.length}s). Layout: ${p.talk.layout}. Look: ${p.style?.preset}.\nBeats:\n${p.talk.beats.map((b, i) => `${i + 1}. "${b.headline}" [${b.visual?.kind}]`).join('\n')}\n\nUser: ${text}` }],
   });
-  if (!plan) { post(pid, { role: 'nick', text: 'Without an AI key I can change the length, layout, look and captions, or render. Add ANTHROPIC_API_KEY for free-form edits.', replies: ['Render it', 'Switch to overlay layout', 'Make it shorter'] }); return; }
-  if (plan.reply) post(pid, { role: 'nick', text: plan.reply });
+  if (!plan) { await post(pid, { role: 'nick', text: 'Without an AI key I can change the length, layout, look and captions, or render. Add ANTHROPIC_API_KEY for free-form edits.', replies: ['Render it', 'Switch to overlay layout', 'Make it shorter'] }); return; }
+  if (plan.reply) await post(pid, { role: 'nick', text: plan.reply });
   let recut = null as { brief: any; note: string } | null; let changed = false; let relayout = false;
   for (const ac of plan.actions || []) {
     if (ac.do === 'set_length' && ac.length) recut = { brief: { ...(recut?.brief || {}), length: ac.length }, note: recut?.note || '' };
     if (ac.do === 'restoryboard') recut = { brief: recut?.brief || {}, note: ac.instruction || '' };
     if (ac.do === 'set_direction' && ac.preset) await setDirection(pid, ac.preset, jobId, true);
-    if (ac.do === 'set_layout' && ac.layout) { updateProject(pid, (pp) => { pp.talk.layout = ac.layout; }); relayout = true; }
-    if (ac.do === 'set_captions') { updateProject(pid, (pp) => { pp.talk.showCaptions = !!ac.captions; }); changed = true; }
-    if (ac.do === 'set_brief' && ac.brief) { updateProject(pid, (pp) => { Object.assign(pp.intake, ac.brief); }); }
-    if (ac.do === 'delete_scene' && ac.scene) { updateProject(pid, (pp) => { pp.talk.beats.splice(ac.scene - 1, 1); }); changed = true; }
-    if (ac.do === 'revise_scene' && ac.scene && ac.instruction) { const pr = progress(pid, jobId, `Redrawing beat ${ac.scene}`); pr.step(ac.instruction); await reviseBeat(pid, ac.scene - 1, ac.instruction); pr.finish(`Beat ${ac.scene} redrawn`); changed = true; }
+    if (ac.do === 'set_layout' && ac.layout) { await updateProject(pid, (pp) => { pp.talk.layout = ac.layout; }); relayout = true; }
+    if (ac.do === 'set_captions') { await updateProject(pid, (pp) => { pp.talk.showCaptions = !!ac.captions; }); changed = true; }
+    if (ac.do === 'set_brief' && ac.brief) { await updateProject(pid, (pp) => { Object.assign(pp.intake, ac.brief); }); }
+    if (ac.do === 'delete_scene' && ac.scene) { await updateProject(pid, (pp) => { pp.talk.beats.splice(ac.scene - 1, 1); }); changed = true; }
+    if (ac.do === 'revise_scene' && ac.scene && ac.instruction) { const pr = await progress(pid, jobId, `Redrawing beat ${ac.scene}`); await pr.step(ac.instruction); await reviseBeat(pid, ac.scene - 1, ac.instruction); await pr.finish(`Beat ${ac.scene} redrawn`); changed = true; }
     if (ac.do === 'render') { await render(pid, ac.formats, jobId); return; }
   }
   if (recut) return cutTalk(pid, recut.brief, jobId, recut.note);
-  if (relayout) { const pr = progress(pid, jobId, 'Re-framing the speaker'); pr.step(`Switching to the ${getProject(pid).talk.layout} layout`); await buildProxies(pid, sublog(pr)); pr.finish('Layout switched'); changed = true; }
-  if (changed) post(pid, { role: 'nick', text: 'Updated. The monitor has the change.', cards: [{ kind: 'edit' }], replies: ['Render it', 'Try another look'] });
+  if (relayout) { const pr = await progress(pid, jobId, 'Re-framing the speaker'); await pr.step(`Switching to the ${(await getProject(pid)).talk.layout} layout`); await buildProxies(pid, sublog(pr)); await pr.finish('Layout switched'); changed = true; }
+  if (changed) await post(pid, { role: 'nick', text: 'Updated. The monitor has the change.', cards: [{ kind: 'edit' }], replies: ['Render it', 'Try another look'] });
 }
 
 async function recast(pid: string, instruction: string, jobId: string) {
-  const pr = progress(pid, jobId, 'Recasting');
-  pr.step(instruction ? `“${instruction.slice(0, 80)}”` : 'Choosing a different cast');
+  const pr = await progress(pid, jobId, 'Recasting');
+  await pr.step(instruction ? `“${instruction.slice(0, 80)}”` : 'Choosing a different cast');
   await castVoices(pid, sublog(pr), instruction);
-  pr.finish('Recast');
-  const c = getProject(pid).cast;
-  post(pid, { role: 'nick', text: c.members.length ? `New cast: **${c.members.map((m) => `${m.name}${c.members.length > 1 ? ` (${m.role})` : ''}`).join(' + ')}**. ${c.why}` : "I couldn't reach the voice library just now.", cards: c.members.length ? [{ kind: 'cast' }] : [], replies: ['Render it', 'Try a different voice'] });
+  await pr.finish('Recast');
+  const c = (await getProject(pid)).cast;
+  await post(pid, { role: 'nick', text: c.members.length ? `New cast: **${c.members.map((m) => `${m.name}${c.members.length > 1 ? ` (${m.role})` : ''}`).join(' + ')}**. ${c.why}` : "I couldn't reach the voice library just now.", cards: c.members.length ? [{ kind: 'cast' }] : [], replies: ['Render it', 'Try a different voice'] });
 }
 
 /** Cheap deterministic intents (work without an AI key). */

@@ -2,7 +2,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { config } from '@truecut/config';
-import { getProject, projectPath, updateProject } from '@truecut/db';
+import { getProject, updateProject } from '@truecut/db';
+import { projectPath } from '@truecut/storage';
 import { probeDuration } from '../render/media';
 
 type Log = (msg: string, pct?: number) => void;
@@ -58,7 +59,7 @@ export async function synthLine(pid: string, text: string, voiceId: string, opts
 }
 
 export async function voiceAll(pid: string, log: Log) {
-  const p = getProject(pid);
+  const p = await getProject(pid);
   // Founder talks keep the founder's own recorded voice. Nothing is ever synthesised for them.
   if (p.kind === 'talk') { log("Founder talk: keeping the speaker's original voice (no synthetic voice-over)", 100); return; }
   const lines = p.scenes.filter((s) => s.vo?.text);
@@ -74,9 +75,9 @@ export async function voiceAll(pid: string, log: Log) {
     const next = lines.slice(i + 1).find((x) => member(x.id)?.voiceId === m?.voiceId)?.vo?.text;
     log(`Voicing scene ${k}/${lines.length}${m ? ` (${m.name || m.role})` : ''}: “${s.vo!.text.slice(0, 50)}”`, (k / lines.length) * 95);
     const r = await synthLine(pid, s.vo!.text, m?.voiceId || fallback, { energy: m?.energy, prev, next });
-    updateProject(pid, (pp) => { const sc = pp.scenes.find((x) => x.id === s.id); if (sc && sc.vo && sc.vo.text === s.vo!.text) Object.assign(sc.vo, { duration: r.duration, words: r.words, file: r.file, hash: r.hash }); });
+    await updateProject(pid, (pp) => { const sc = pp.scenes.find((x) => x.id === s.id); if (sc && sc.vo && sc.vo.text === s.vo!.text) Object.assign(sc.vo, { duration: r.duration, words: r.words, file: r.file, hash: r.hash }); });
   }
-  updateProject(pid, (pp) => { pp.audioFile = undefined; pp.audioHash = undefined; if (pp.stage === 'storyboard') pp.stage = 'voice'; });
+  await updateProject(pid, (pp) => { pp.audioFile = undefined; pp.audioHash = undefined; if (pp.stage === 'storyboard') pp.stage = 'voice'; });
   const voices = new Set(lines.map((s) => member(s.id)?.voiceId || fallback));
   log(`Voiced ${lines.length} lines with ${voices.size} voice${voices.size > 1 ? 's' : ''}`, 100);
 }

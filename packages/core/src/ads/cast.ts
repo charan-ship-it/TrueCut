@@ -26,7 +26,7 @@ const CAST_TOOL = {
 };
 
 export async function castVoices(pid: string, log: Log, instruction = '') {
-  const p = getProject(pid);
+  const p = await getProject(pid);
   if (p.kind === 'talk') { log("Founder talk: the speaker's own voice is kept, nothing to cast"); return; }
   const lines = p.scenes.map((s, i) => ({ s, i })).filter((x) => x.s.vo?.text);
   if (!lines.length) return;
@@ -63,7 +63,7 @@ ${instruction ? `CUSTOMER REQUEST (follow it): ${instruction}` : ''}`,
   // a "second voice" that ends up with no lines is dropped
   const used = new Set(Object.values(assign)); const kept = members.filter((m, k) => k === 0 || used.has(m.role));
   const genre = GENRES.includes(out.music?.genre) ? out.music.genre : dir.music.genre;
-  updateProject(pid, (pp) => {
+  await updateProject(pid, (pp) => {
     pp.cast = { members: kept, assign, why: String(out.why || ''), music: { genre, bpm: out.music?.bpm ? Math.max(60, Math.min(150, Math.round(out.music.bpm))) : undefined, why: String(out.music?.why || ''), preset: pp.style?.preset }, auto: true, at: new Date().toISOString() };
     for (const s of pp.scenes) if (s.vo) { delete s.vo.file; delete s.vo.hash; }
     pp.audioFile = undefined; pp.audioHash = undefined;

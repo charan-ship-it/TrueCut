@@ -6,13 +6,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { ROOT, config } from '@truecut/config';
-import { getProject, projectDir, projectPath, updateProject, newId } from '@truecut/db';
+import { getProject, updateProject, newId } from '@truecut/db';
+import { projectDir, projectPath } from '@truecut/storage';
 import { ffmpeg, ffmpegPath } from './media';
 import { toComposition, projectLayout } from '@truecut/shared/compose';
 import { buildAudio } from '../audio/soundtrack';
 import { launchBrowser } from './browser';
 import { FORMATS } from '@truecut/engine/timeline.js';
-import type { FormatId, RenderOut } from '@truecut/shared/types';
+import type { FormatId, Project, RenderOut } from '@truecut/shared/types';
 import type { Log } from '@truecut/queue';
 
 const FPS = 30;
@@ -50,11 +51,11 @@ function encoder(out: string, fps: number) {
 export const slug = (s: string) => (s || 'video').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 40) || 'video';
 
 export async function renderProject(pid: string, formats: FormatId[], log: Log) {
-  let p = getProject(pid);
+  let p = await getProject(pid);
   if (!p.scenes.length) throw new Error('Storyboard is empty.');
   log('Building soundtrack…', 2);
   const audio = await buildAudio(pid, (m) => log(m, 3));
-  p = getProject(pid);
+  p = await getProject(pid);
   const comp = toComposition(p);
   const L = projectLayout(p);
   const total = Math.ceil(L.duration * FPS);
@@ -99,8 +100,8 @@ export async function renderProject(pid: string, formats: FormatId[], log: Log) 
     }
   } finally { await browser.close(); srv.close(); fs.rmSync(tmp, { recursive: true, force: true }); }
   fs.writeFileSync(projectPath(pid, `renders/${name}.srt`), srt(L));
-  fs.writeFileSync(projectPath(pid, `renders/${name}_FACTS.md`), factsLedger(getProject(pid)));
-  updateProject(pid, (pp) => { pp.renders = [...outs, ...pp.renders.filter((r) => !outs.some((o) => o.file === r.file))]; pp.stage = 'done'; });
+  fs.writeFileSync(projectPath(pid, `renders/${name}_FACTS.md`), factsLedger(await getProject(pid)));
+  await updateProject(pid, (pp) => { pp.renders = [...outs, ...pp.renders.filter((r) => !outs.some((o) => o.file === r.file))]; pp.stage = 'done'; });
   log(`Done: ${outs.map((o) => o.format).join(', ')}`, 100);
   return outs;
 }
@@ -108,7 +109,7 @@ export async function renderProject(pid: string, formats: FormatId[], log: Log) 
 const ts = (x: number) => { const ms = Math.round(x * 1000); const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000), s = Math.floor((ms % 60000) / 1000); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms % 1000).padStart(3, '0')}`; };
 export function srt(L: any) { return L.captions.map((c: any, i: number) => `${i + 1}\n${ts(c.start)} --> ${ts(c.end + 0.4)}\n${c.words.map((w: any) => w.w).join(' ')}\n`).join('\n'); }
 
-export function factsLedger(p: ReturnType<typeof getProject>) {
+export function factsLedger(p: Project) {
   const lines = [`# ${p.intake.productName || p.name} — facts used in this video`, '', `Generated ${new Date().toISOString().slice(0, 16).replace('T', ' ')} by TrueCut. Every on-screen number and claim should trace to a row below.`, '', '| Scene | Spoken line | Facts | Status | Source quote |', '|---|---|---|---|---|'];
   p.scenes.forEach((s, i) => {
     const fs_ = (s.facts || []).map((id) => p.facts.find((f) => f.id === id)).filter(Boolean) as any[];

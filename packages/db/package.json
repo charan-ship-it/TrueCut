@@ -5,11 +5,21 @@
   "type": "module",
   "description": "Persistence: projects, jobs, users and workspaces.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./migrate": "./src/migrate.ts"
   },
   "dependencies": {
-    "@truecut/shared": "*",
     "@truecut/config": "*",
-    "nanoid": "^5.1.5"
+    "@truecut/shared": "*",
+    "drizzle-orm": "^0.45.4",
+    "nanoid": "^5.1.5",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.11"
+  },
+  "scripts": {
+    "migrate": "tsx src/migrate.ts",
+    "generate": "drizzle-kit generate"
   }
 }

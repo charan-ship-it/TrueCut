@@ -12,12 +12,13 @@
     "start": "NODE_ENV=production next start -p ${PORT:-3100}"
   },
   "dependencies": {
-    "@truecut/shared": "*",
     "@truecut/config": "*",
-    "@truecut/db": "*",
-    "@truecut/queue": "*",
     "@truecut/core": "*",
+    "@truecut/db": "*",
     "@truecut/engine": "*",
+    "@truecut/queue": "*",
+    "@truecut/shared": "*",
+    "@truecut/storage": "*",
     "next": "14.2.35",
     "react": "18.3.1",
     "react-dom": "18.3.1"

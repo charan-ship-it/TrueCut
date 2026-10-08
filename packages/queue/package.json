@@ -8,7 +8,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@truecut/config": "*",
     "@truecut/db": "*",
-    "@truecut/config": "*"
+    "@truecut/storage": "*"
   }
 }

@@ -4,7 +4,8 @@ import path from 'node:path';
 import { imageSize } from 'image-size';
 import type { Page } from 'playwright';
 import { launchBrowser } from '../render/browser';
-import { getProject, projectPath, updateProject, newId, writeAtomic } from '@truecut/db';
+import { getProject, updateProject, newId } from '@truecut/db';
+import { projectPath, writeAtomic, ensureProjectDirs } from '@truecut/storage';
 import { toJpeg } from '../render/media';
 import type { Source, Visual } from '@truecut/shared/types';
 
@@ -14,12 +15,12 @@ const MEDIA_EXT = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.mp3', '.wa
 const TXT_EXT = new Set(['.md', '.mdx', '.txt', '.csv', '.html', '.htm', '.rst', '.vtt', '.srt']);
 const SKIP_DIRS = new Set(['node_modules', '.git', '.next', 'dist', 'build', 'out', 'coverage', '.venv', 'venv', '__pycache__', '.turbo', '.cache', 'vendor', '.idea', '.vscode', 'tmp', 'data']);
 
-function setSource(pid: string, sid: string, patch: Partial<Source>) {
-  updateProject(pid, (p) => { const s = p.sources.find((x) => x.id === sid); if (s) Object.assign(s, patch); });
+async function setSource(pid: string, sid: string, patch: Partial<Source>) {
+  await updateProject(pid, (p) => { const s = p.sources.find((x) => x.id === sid); if (s) Object.assign(s, patch); });
 }
-function addVisuals(pid: string, vs: Visual[]) {
+async function addVisuals(pid: string, vs: Visual[]) {
   if (!vs.length) return;
-  updateProject(pid, (p) => { for (const v of vs) if (!p.visuals.find((x) => x.file === v.file)) p.visuals.push(v); });
+  await updateProject(pid, (p) => { for (const v of vs) if (!p.visuals.find((x) => x.file === v.file)) p.visuals.push(v); });
 }
 function sizeOf(file: string) { try { const d = imageSize(fs.readFileSync(file)); return { w: d.width || 0, h: d.height || 0 }; } catch { return { w: 0, h: 0 }; } }
 const clean = (s: string) => s.replace(/ /g, ' ').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
@@ -111,8 +112,8 @@ export async function ingestUrl(pid: string, sid: string, url: string, log: Log,
   } finally { await browser.close(); }
   const textFile = `sources/${sid}.txt`;
   writeAtomic(projectPath(pid, textFile), text.trim());
-  addVisuals(pid, visuals);
-  setSource(pid, sid, { status: 'ready', textFile, chars: text.length, pages, meta, label: meta.siteName || meta.title || url });
+  await addVisuals(pid, visuals);
+  await setSource(pid, sid, { status: 'ready', textFile, chars: text.length, pages, meta, label: meta.siteName || meta.title || url });
   log(`Read ${pages.length} page(s), captured ${visuals.length} visuals`, 100);
 }
 
@@ -183,45 +184,46 @@ export async function ingestPath(pid: string, sid: string, abs: string, log: Log
   }
   const textFile = `sources/${sid}.txt`;
   writeAtomic(projectPath(pid, textFile), text.trim());
-  addVisuals(pid, visuals);
-  setSource(pid, sid, { status: 'ready', textFile, chars: text.length, meta: { files: used.slice(0, 60), images: imgs.length } });
+  await addVisuals(pid, visuals);
+  await setSource(pid, sid, { status: 'ready', textFile, chars: text.length, meta: { files: used.slice(0, 60), images: imgs.length } });
   log(`Read ${used.length} files and ${visuals.length} images`, 100);
 }
 
 // ───────────────────────── text + uploads ─────────────────────────
-export function ingestText(pid: string, sid: string, text: string) {
+export async function ingestText(pid: string, sid: string, text: string) {
   const textFile = `sources/${sid}.txt`;
   writeAtomic(projectPath(pid, textFile), clean(text));
-  setSource(pid, sid, { status: 'ready', textFile, chars: text.length });
+  await setSource(pid, sid, { status: 'ready', textFile, chars: text.length });
 }
 
 export async function ingestUpload(pid: string, sid: string, name: string, buf: Buffer) {
+  ensureProjectDirs(pid);
   const ext = path.extname(name).toLowerCase();
   if (IMG_EXT.has(ext)) {
     const id = 'v' + newId().slice(0, 7); const raw = projectPath(pid, `sources/${id}${ext}`); fs.writeFileSync(raw, buf);
     const file = ext === '.png' ? `assets/${id}.png` : `assets/${id}.jpg`;
     if (ext === '.png') fs.copyFileSync(raw, projectPath(pid, file)); else await toJpeg(raw, projectPath(pid, file), 2000, 3);
     const { w, h } = sizeOf(projectPath(pid, file));
-    addVisuals(pid, [{ id, file, w, h, origin: name, sourceId: sid, kind: /logo/i.test(name) ? 'logo' : 'image', use: true } as Visual]);
-    setSource(pid, sid, { status: 'ready', chars: 0 });
+    await addVisuals(pid, [{ id, file, w, h, origin: name, sourceId: sid, kind: /logo/i.test(name) ? 'logo' : 'image', use: true } as Visual]);
+    await setSource(pid, sid, { status: 'ready', chars: 0 });
     return;
   }
-  if (TXT_EXT.has(ext) || ext === '.json') { ingestText(pid, sid, buf.toString('utf8').slice(0, 300_000)); return; }
+  if (TXT_EXT.has(ext) || ext === '.json') { await ingestText(pid, sid, buf.toString('utf8').slice(0, 300_000)); return; }
   if (MEDIA_EXT.has(ext)) { // recordings are transcribed by the talk pipeline (needs a job + progress)
     const raw = `sources/${sid}${ext}`; fs.writeFileSync(projectPath(pid, raw), buf);
-    setSource(pid, sid, { status: 'pending', meta: { mediaFile: raw, name } }); return;
+    await setSource(pid, sid, { status: 'pending', meta: { mediaFile: raw, name } }); return;
   }
-  setSource(pid, sid, { status: 'error', error: `Unsupported file type ${ext}. Use images, recordings (.mp4/.mov/.mp3/.wav/.m4a), .md, .txt, .csv, .html, .vtt or paste the text.` });
+  await setSource(pid, sid, { status: 'error', error: `Unsupported file type ${ext}. Use images, recordings (.mp4/.mov/.mp3/.wav/.m4a), .md, .txt, .csv, .html, .vtt or paste the text.` });
 }
 
-export function addSource(pid: string, kind: Source['kind'], ref: string, label?: string): Source {
+export async function addSource(pid: string, kind: Source['kind'], ref: string, label?: string): Promise<Source> {
   const s: Source = { id: 's' + newId().slice(0, 7), kind, ref, label: label || ref.slice(0, 80), addedAt: new Date().toISOString(), status: 'pending', chars: 0 };
-  updateProject(pid, (p) => { p.sources.push(s); });
+  await updateProject(pid, (p) => { p.sources.push(s); });
   return s;
 }
 
-export function removeSource(pid: string, sid: string) {
-  updateProject(pid, (p) => { p.sources = p.sources.filter((s) => s.id !== sid); p.visuals = p.visuals.filter((v) => v.sourceId !== sid); });
+export async function removeSource(pid: string, sid: string) {
+  await updateProject(pid, (p) => { p.sources = p.sources.filter((s) => s.id !== sid); p.visuals = p.visuals.filter((v) => v.sourceId !== sid); });
 }
 
 export { getProject };

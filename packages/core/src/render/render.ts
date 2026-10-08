@@ -1,5 +1,6 @@
 // Frame-accurate renderer: headless Chromium plays the exact same player used for preview,
 // frame by frame, split across parallel workers; ffmpeg encodes, concatenates and muxes audio.
+import { withRenderSlot } from './slots';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -50,7 +51,10 @@ function encoder(out: string, fps: number) {
 
 export const slug = (s: string) => (s || 'video').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 40) || 'video';
 
-export async function renderProject(pid: string, formats: FormatId[], log: Log) {
+export function renderProject(pid: string, formats: FormatId[], log: Log) {
+  return withRenderSlot(() => renderProjectNow(pid, formats, log), () => log('Waiting for a free render slot…'));
+}
+async function renderProjectNow(pid: string, formats: FormatId[], log: Log) {
   let p = await getProject(pid);
   if (!p.scenes.length) throw new Error('Storyboard is empty.');
   log('Building soundtrack…', 2);

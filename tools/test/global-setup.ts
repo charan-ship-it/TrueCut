@@ -13,7 +13,7 @@ export default async function setup() {
     await sql.end({ timeout: 1 }).catch(() => {});
     return;
   }
-  await sql.unsafe('drop schema if exists public cascade; drop schema if exists drizzle cascade; create schema public;');
+  await sql.unsafe('drop schema if exists public cascade; drop schema if exists drizzle cascade; drop schema if exists pgboss cascade; create schema public;');
   await sql.end();
   process.env.DATABASE_URL = url;
   const { runMigrations } = await import('@truecut/db/migrate');

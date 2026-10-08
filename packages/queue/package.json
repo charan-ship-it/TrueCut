@@ -10,6 +10,7 @@
   "dependencies": {
     "@truecut/config": "*",
     "@truecut/db": "*",
-    "@truecut/storage": "*"
+    "@truecut/storage": "*",
+    "pg-boss": "12.33.7"
   }
 }

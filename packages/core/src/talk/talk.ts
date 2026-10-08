@@ -2,6 +2,7 @@
 // → Claude edits it (keeps the strongest moments, splits into beats, designs an illustration per beat)
 // → cut + crop the speaker with ffmpeg → score a quiet bed under the voice → composite the animated
 // panel (rendered with alpha by the same engine as the preview) over the cut.
+import { withRenderSlot } from '../render/slots';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -365,7 +366,10 @@ export async function buildProxies(pid: string, log: Log) {
 }
 
 // ───────────────────────── final render ─────────────────────────
-export async function renderTalk(pid: string, formats: FormatId[], log: Log) {
+export function renderTalk(pid: string, formats: FormatId[], log: Log) {
+  return withRenderSlot(() => renderTalkNow(pid, formats, log), () => log('Waiting for a free render slot…'));
+}
+async function renderTalkNow(pid: string, formats: FormatId[], log: Log) {
   let p = await getProject(pid);
   if (!p.talk.beats.length) throw new Error('There is no edit yet.');
   const mix = await talkMix(pid, log);

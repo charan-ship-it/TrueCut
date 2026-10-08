@@ -24,7 +24,9 @@
     "setup": "bash tools/setup.sh",
     "db:migrate": "npm run migrate -w @truecut/db",
     "db:generate": "npm run generate -w @truecut/db",
-    "db:import": "tsx tools/import-projects.ts"
+    "db:import": "tsx tools/import-projects.ts",
+    "worker": "npm run start -w @truecut/worker",
+    "dev:worker": "npm run dev -w @truecut/worker"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

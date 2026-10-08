@@ -1,0 +1,19 @@
+{
+  "name": "@truecut/worker",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Runs TrueCut's background jobs (Nick turns, ingest, transcription, voice, audio, renders) from the Postgres queue.",
+  "scripts": {
+    "dev": "TRUECUT_QUEUE=pgboss tsx watch src/main.ts",
+    "start": "TRUECUT_QUEUE=pgboss tsx src/main.ts"
+  },
+  "dependencies": {
+    "@truecut/config": "*",
+    "@truecut/core": "*",
+    "@truecut/db": "*",
+    "@truecut/queue": "*",
+    "@truecut/storage": "*",
+    "tsx": "^4.20.3"
+  }
+}

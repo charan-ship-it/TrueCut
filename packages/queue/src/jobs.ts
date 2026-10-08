@@ -5,7 +5,7 @@
 //   inline  run the handler in this process (local dev, tests, the CLI). Heavy jobs run one at a time.
 //   pgboss  hand the job to the worker service through Postgres (see ./boss.ts). Default when the
 //           worker is deployed.
-import { createJob, finishJob, markRunning, reportJob, getJob, projectJobs, isBusy, busyProjects, type Job } from '@truecut/db';
+import { createJob, finishJob, markRunning, reportJob, getJob, projectJobs, isBusy, busyProjects, STALE_MS, type Job } from '@truecut/db';
 import { env } from '@truecut/config';
 import { ensureProjectDirs } from '@truecut/storage';
 
@@ -36,8 +36,8 @@ export function setSender(s: Sender | null) { sender = s; }
 export async function enqueue<P = any>(kind: string, projectId: string | null, payload: P, opts: { createdBy?: string | null } = {}): Promise<Job> {
   const job = await createJob(kind, projectId, { payload, createdBy: opts.createdBy });
   if (queueDriver() === 'pgboss') {
-    if (!sender) throw new Error('Queue is not started (call startQueue() first)');
-    await sender(job);
+    if (!sender) await (await import('./boss')).startSender();
+    await sender!(job);
   } else {
     const run = () => runJob(job.id);
     if (isHeavy(kind)) reg.chain = reg.chain.then(run, run); else void run().catch(() => {});
@@ -50,6 +50,8 @@ export async function runJob(id: string): Promise<void> {
   const job = await getJob(id);
   if (!job) return;
   if (job.status === 'done' || job.status === 'error') return;
+  // a delivery for a job another live worker is already running: leave it alone
+  if (job.status === 'running' && job.heartbeatAt && Date.now() - Date.parse(job.heartbeatAt) < STALE_MS) return;
   const def = reg.handlers.get(job.kind);
   if (!def) { await finishJob(id, { error: `No handler for job kind "${job.kind}"` }); return; }
   if (job.projectId) ensureProjectDirs(job.projectId);

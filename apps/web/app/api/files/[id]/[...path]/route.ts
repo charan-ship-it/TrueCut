@@ -16,7 +16,7 @@ export async function GET(req: Request, { params }: { params: { id: string; path
   const type = mimeOf(f);
   const dl = new URL(req.url).searchParams.has('download');
   const headers: Record<string, string> = { 'content-type': type, 'accept-ranges': 'bytes', 'cache-control': 'no-cache' };
-  if (dl) headers['content-disposition'] = `attachment; filename="${path.basename(f)}"`;
+  if (dl) headers['content-disposition'] = `attachment; filename="${path.basename(f).replace(/["\\\r\n]/g, '_')}"`;
   const range = req.headers.get('range') || undefined;
 
   if (storageDriver() === 's3') {

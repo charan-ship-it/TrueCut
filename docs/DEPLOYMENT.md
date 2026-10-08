@@ -73,7 +73,7 @@ Optional worker settings:
 | Variable | Default | What it does |
 |---|---|---|
 | `TRUECUT_RENDER_SLOTS` | `1` | renders at once per worker |
-| `TRUECUT_WORKER_CONCURRENCY` | `3` | other jobs at once (Nick turns, ingest, voice) |
+| `TRUECUT_WORKER_CONCURRENCY` | `3` | jobs at once per job kind (Nick turns, ingest, voice…) |
 | `TRUECUT_WORKERS` | half the CPUs, max 6 | Chromium pages per render |
 | `TRUECUT_SHUTDOWN_GRACE_SECONDS` | `300` | how long a deploy waits for running jobs to finish |
 

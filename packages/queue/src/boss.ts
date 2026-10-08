@@ -20,7 +20,7 @@ async function boss(role: 'web' | 'worker'): Promise<PgBoss> {
       await b.start();
       g.__tcBoss = b;
       return b;
-    })();
+    })().catch((e: any) => { g.__tcBossStarting = undefined; throw e; });
   }
   return g.__tcBossStarting;
 }

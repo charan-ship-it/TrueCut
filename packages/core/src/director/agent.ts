@@ -15,7 +15,7 @@ import { castVoices } from '../ads/cast';
 import { ingestMedia, isMedia, planTalk, buildProxies, buildProxiesFresh, renderTalk, reviseBeat } from '../talk/talk';
 import { ffmpeg } from '../render/media';
 import { checkScenes } from '@truecut/shared/facts';
-import { defineHandler, enqueue, type Log } from '@truecut/queue';
+import { defineHandler, enqueue, isBusy, type Log } from '@truecut/queue';
 import { DIRECTIONS } from '@truecut/engine/styles.js';
 import type { Angle, ChatMsg, FormatId, Project } from '@truecut/shared/types';
 
@@ -61,17 +61,23 @@ async function progress(pid: string, jobId: string, title: string) {
 type Prog = Awaited<ReturnType<typeof progress>>;
 const sublog = (pr: Prog): Log => (msg) => pr.detail(msg);
 
+export class BusyError extends Error { constructor() { super('Nick is still working on the last request.'); } }
+
 // ───────────── entry point ─────────────
 /** Post the user's message, mark Nick busy and queue the turn. The turn itself runs as a "nick" job. */
 export async function startTurn(pid: string, action: Action, opts: { createdBy?: string | null } = {}) {
-  const p = await getProject(pid);
-  if (action.type === 'message' || action.type === 'reply') {
-    await post(pid, { role: 'user', text: action.text, attachments: action.type === 'message' ? action.attachments || [] : [] });
-  } else {
-    await post(pid, { role: 'user', text: userEcho(p, action) });
-  }
-  await updateProject(pid, (pp) => { pp.agentBusy = true; });
-  return enqueue('nick', pid, { action }, opts);
+  // Claim the turn and post the user's message in one locked update, so a double submit (or two
+  // teammates at once) can't start two turns. A claim older than a minute with no live job is stale.
+  const live = await isBusy(pid);
+  await updateProject(pid, (pp) => {
+    const recent = pp.agentSince && Date.now() - Date.parse(pp.agentSince) < 60_000;
+    if (pp.agentBusy && (live || recent)) throw new BusyError();
+    const text = action.type === 'message' || action.type === 'reply' ? action.text : userEcho(pp, action);
+    pp.chat.push({ id: 'm' + newId().slice(0, 8), role: 'user', text, cards: [], replies: [], attachments: action.type === 'message' ? action.attachments || [] : [], at: now() } as ChatMsg);
+    pp.agentBusy = true; pp.agentSince = now();
+  });
+  try { return await enqueue('nick', pid, { action }, opts); }
+  catch (e) { await updateProject(pid, (pp) => { pp.agentBusy = false; }); throw e; }
 }
 
 defineHandler<{ action: Action }>('nick', async ({ action }, { job }) => {

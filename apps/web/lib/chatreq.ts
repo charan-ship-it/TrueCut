@@ -17,7 +17,10 @@ export function applyOptions(pp: Project, action: Action) {
   if (opts.kind) pp.kind = opts.kind;
   if (opts.preset) pp.style = { preset: opts.preset } as any;
   if (pp.name === 'Untitled video' && action.type === 'message') {
-    const first = [...(action.attachments || []), ...detectSources(action.text)][0];
+    // name it after the site or repo; an uploaded recording names a founder talk; documents leave it to Nick
+    const media = /\.(mp4|mov|m4v|webm|mkv|mp3|wav|m4a|aac|ogg|flac)$/i;
+    const all = [...detectSources(action.text), ...(action.attachments || [])];
+    const first = all.find((a) => a.kind === 'url' || a.kind === 'path') || all.find((a) => a.kind === 'upload' && media.test(a.label));
     if (first) pp.name = first.label.replace(/^www\./, '').split('/')[0].replace(/\.(png|jpe?g|webp|gif|md|txt|csv|html?|json|vtt|srt|mp4|mov|m4v|webm|mkv|mp3|wav|m4a|aac|ogg|flac)$/i, '') || pp.name;
   }
 }

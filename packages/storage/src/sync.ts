@@ -46,7 +46,8 @@ export function hydrate(pid: string): Promise<{ downloaded: number }> {
     let downloaded = 0;
     for (const o of remote) {
       const file = path.join(dir, o.rel); const st = fs.existsSync(file) ? fs.statSync(file) : null; const e = m[o.rel];
-      if (st && e && e.etag === o.etag && st.size === e.size && st.mtimeMs === e.mtimeMs) continue;
+      // same object as last time: keep the local file, even if a job changed it and hasn't flushed yet
+      if (st && e && e.etag === o.etag) continue;
       if (st && !e && st.size === o.size) { m[o.rel] = { size: st.size, mtimeMs: st.mtimeMs, etag: o.etag }; continue; }
       const r = await getObject(pid, o.rel); if (!r?.body) continue;
       fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -54,9 +55,15 @@ export function hydrate(pid: string): Promise<{ downloaded: number }> {
       await pipeline(r.body, fs.createWriteStream(tmp)); fs.renameSync(tmp, file);
       const s2 = fs.statSync(file); m[o.rel] = { size: s2.size, mtimeMs: s2.mtimeMs, etag: o.etag }; downloaded++;
     }
-    // remote objects that are gone (deleted by another worker or the web app) leave the manifest
+    // objects deleted elsewhere (another worker, or the project was deleted): drop our copy too, unless
+    // this folder changed the file since (then the next flush uploads it as new)
     const live = new Set(remote.map((o) => o.rel));
-    for (const k of Object.keys(m)) if (!live.has(k)) { delete m[k]; }
+    for (const k of Object.keys(m)) {
+      if (live.has(k)) continue;
+      const file = path.join(dir, k); const st = fs.existsSync(file) ? fs.statSync(file) : null;
+      if (st && st.size === m[k].size && st.mtimeMs === m[k].mtimeMs) fs.rmSync(file, { force: true });
+      delete m[k];
+    }
     writeManifest(pid, m);
     return { downloaded };
   });
@@ -90,14 +97,14 @@ export async function saveFile(pid: string, rel: string, src: NodeJS.ReadableStr
   const file = path.join(projectDir(pid), rel);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.up.tmp`;
-  if (Buffer.isBuffer(src)) fs.writeFileSync(tmp, src); else await pipeline(src, fs.createWriteStream(tmp));
+  try { if (Buffer.isBuffer(src)) fs.writeFileSync(tmp, src); else await pipeline(src, fs.createWriteStream(tmp)); }
+  catch (e) { fs.rmSync(tmp, { force: true }); throw e; }
   fs.renameSync(tmp, file);
   const st = fs.statSync(file);
   if (storageDriver() === 's3') {
-    await serial(pid, async () => {
-      const etag = await putObject(pid, rel, fs.createReadStream(file), mimeOf(rel));
-      const m = readManifest(pid); m[rel] = { size: st.size, mtimeMs: st.mtimeMs, etag }; writeManifest(pid, m);
-    });
+    // the bucket is the copy that matters; the web app doesn't keep large uploads on its own disk
+    try { await serial(pid, () => putObject(pid, rel, fs.createReadStream(file), mimeOf(rel))); }
+    finally { fs.rmSync(file, { force: true }); }
   }
   return { size: st.size };
 }

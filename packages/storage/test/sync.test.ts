@@ -39,6 +39,8 @@ describe.skipIf(!endpoint)('bucket sync', () => {
     // the first machine catches up: deleted file is not re-uploaded, new file arrives
     await s.hydrate(pid);
     expect(fs.existsSync(s.projectPath(pid, 'vo/x.mp3'))).toBe(true);
+    expect(fs.existsSync(s.projectPath(pid, 'sources/s1.txt'))).toBe(false); // deleted elsewhere → gone here
+    expect((await s.flush(pid)).uploaded).toBe(0);
     const got = await s.getObject(pid, 'renders/a.mp4', 'bytes=0-9');
     expect(got?.size).toBe(10);
     expect(await s.signedUrl(pid, 'renders/a.mp4')).toMatch(/X-Amz-Signature/);

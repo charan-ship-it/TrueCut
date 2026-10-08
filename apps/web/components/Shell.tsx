@@ -9,7 +9,7 @@ import { signOut } from 'next-auth/react';
 
 type Row = { id: string; name: string; stage: string; updatedAt: string; scenes: number; renders: number; thumb: string | null; video: string | null; style: string; favorite: boolean; busy: boolean; length: number; last: string; creator?: { name: string; image?: string | null } | null };
 type Me = { user: { id: string; name: string; email: string; image?: string | null }; auth: boolean };
-const Shared = createContext<{ projects: Row[] | null; refresh: () => void; health: any }>({ projects: null, refresh: () => {}, health: null });
+const Shared = createContext<{ projects: Row[] | null; refresh: () => void; health: any; me: Me | null }>({ projects: null, refresh: () => {}, health: null, me: null });
 export const useShared = () => useContext(Shared);
 
 export default function Shell({ children }: { children: React.ReactNode }) {
@@ -47,7 +47,7 @@ function App({ children }: { children: React.ReactNode }) {
   const chk = (id: string) => health?.checks?.find((c: any) => c.id === id);
 
   return (
-    <Shared.Provider value={{ projects, refresh, health }}>
+    <Shared.Provider value={{ projects, refresh, health, me }}>
       <div className={`app ${collapsed ? 'collapsed' : ''}`}>
         <aside className="side">
           <div className="row between" style={{ paddingRight: 2 }}>

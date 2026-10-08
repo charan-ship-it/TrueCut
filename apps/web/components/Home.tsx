@@ -16,7 +16,7 @@ const STARTERS = [
 
 export default function Home() {
   const r = useRouter();
-  const { projects, refresh } = useShared();
+  const { projects, refresh, me } = useShared();
   const [opts, setOpts] = useState<Options>({ kind: 'ad', length: 0, formats: ['4x5', '9x16'], preset: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -44,7 +44,7 @@ export default function Home() {
         </div>
       </section>
       <section className="section">
-        <div className="sectionhd"><h2 className="serif" style={{ fontSize: 30 }}>Your reel</h2><span className="tc">{projects?.length ? `${projects.length} video${projects.length > 1 ? 's' : ''}` : ''}</span></div>
+        <div className="sectionhd"><h2 className="serif" style={{ fontSize: 30 }}>{me?.auth ? 'Team reel' : 'Your reel'}</h2><span className="tc">{projects?.length ? `${projects.length} video${projects.length > 1 ? 's' : ''}` : ''}</span></div>
         <VideoGrid projects={projects} limit={12} />
       </section>
     </div>

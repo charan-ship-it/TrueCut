@@ -185,5 +185,6 @@ export const Project = z.object({
   kind: z.string().default('ad'),                  // ad | explainer | launch | social
   favorite: z.boolean().default(false),
   agentBusy: z.boolean().default(false),
+  agentSince: z.string().optional(),     // when the current turn was claimed (guards double submits)
 });
 export type Project = z.infer<typeof Project>;

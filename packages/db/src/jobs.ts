@@ -14,6 +14,8 @@ export type Job = {
 
 /** A running job whose worker has not reported for this long is treated as dead. */
 export const STALE_MS = 90_000;
+/** A job still queued after this long was never picked up (lost delivery); it stops counting as busy. */
+export const QUEUED_MAX_MS = 6 * 3600_000;
 
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 function toJob(r: typeof jobs.$inferSelect): Job {
@@ -57,7 +59,7 @@ export async function finishJob(id: string, out: { result?: any; error?: string;
   await db().update(jobs).set(set).where(eq(jobs.id, id));
 }
 
-const live = () => or(eq(jobs.status, 'queued'), and(eq(jobs.status, 'running'), gt(jobs.heartbeatAt, new Date(Date.now() - STALE_MS))));
+const live = () => or(and(eq(jobs.status, 'queued'), gt(jobs.createdAt, new Date(Date.now() - QUEUED_MAX_MS))), and(eq(jobs.status, 'running'), gt(jobs.heartbeatAt, new Date(Date.now() - STALE_MS))));
 
 /** True while a job of this kind for this project is queued, or running with a recent heartbeat. */
 export async function isBusy(projectId: string, kind = 'nick'): Promise<boolean> {
@@ -69,7 +71,9 @@ export async function isBusy(projectId: string, kind = 'nick'): Promise<boolean>
 export async function failStaleJobs(): Promise<number> {
   const rows = await db().update(jobs).set({ status: 'error', error: 'The worker stopped before this finished. Please try again.', message: 'Interrupted', endedAt: new Date() })
     .where(and(eq(jobs.status, 'running'), or(isNull(jobs.heartbeatAt), lt(jobs.heartbeatAt, new Date(Date.now() - STALE_MS))))).returning({ id: jobs.id });
-  return rows.length;
+  const lost = await db().update(jobs).set({ status: 'error', error: 'This job was never picked up. Please try again.', message: 'Not started', endedAt: new Date() })
+    .where(and(eq(jobs.status, 'queued'), lt(jobs.createdAt, new Date(Date.now() - QUEUED_MAX_MS)))).returning({ id: jobs.id });
+  return rows.length + lost.length;
 }
 
 export async function activeJobs(kinds?: string[]) {

@@ -36,8 +36,14 @@ export function setSender(s: Sender | null) { sender = s; }
 export async function enqueue<P = any>(kind: string, projectId: string | null, payload: P, opts: { createdBy?: string | null } = {}): Promise<Job> {
   const job = await createJob(kind, projectId, { payload, createdBy: opts.createdBy });
   if (queueDriver() === 'pgboss') {
-    if (!sender) await (await import('./boss')).startSender();
-    await sender!(job);
+    try {
+      if (!sender) await (await import('./boss')).startSender();
+      await sender!(job);
+    } catch (e: any) {
+      // never leave a "queued" row nobody will run: it would keep the project looking busy
+      await finishJob(job.id, { error: `Couldn't queue the job: ${e?.message || e}` }).catch(() => {});
+      throw e;
+    }
   } else {
     const run = () => runJob(job.id);
     if (isHeavy(kind)) reg.chain = reg.chain.then(run, run); else void run().catch(() => {});

@@ -1,4 +1,4 @@
-# Truecut — product spec (v0.1)
+# TrueCut — product spec (v0.1)
 
 _Last updated 2026-10-07._
 
@@ -14,7 +14,7 @@ The raw material for great product video already exists: the website, the repo, 
 
 ## 2. Product
 
-Truecut turns a URL, a repo or folder, uploads or pasted notes into a 15–45 second motion-graphics ad. It works in five steps:
+TrueCut turns a URL, a repo or folder, uploads or pasted notes into a 15–45 second motion-graphics ad. It works in five steps:
 
 1. It reads the material and captures real visuals.
 2. It extracts verifiable facts.

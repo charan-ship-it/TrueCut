@@ -10,7 +10,7 @@ import { resolveStyle } from '../public/engine/styles.js';
 
 export function audioKey(pid: string) {
   const p = getProject(pid); const L = projectLayout(p);
-  return crypto.createHash('sha1').update(JSON.stringify([p.music.mode, p.style, 'g2', L.duration, L.revealAt, L.scenes.map((s: any) => [s.type, s.start, s.vo?.text, s.scene?.vo?.file]), p.scenes.map((s) => s.vo?.hash || '')])).digest('hex').slice(0, 12);
+  return crypto.createHash('sha1').update(JSON.stringify([p.music.mode, p.style, p.cast?.music, 'g3', L.duration, L.revealAt, L.scenes.map((s: any) => [s.type, s.start, s.vo?.text, s.scene?.vo?.file]), p.scenes.map((s) => s.vo?.hash || '')])).digest('hex').slice(0, 12);
 }
 
 export async function buildAudio(pid: string, log: Log) {
@@ -26,10 +26,18 @@ export async function buildAudio(pid: string, log: Log) {
   }
   log(`Scoring ${L.duration.toFixed(1)}s of music and sound design…`, 35);
   const endScene = (L.scenes as any[]).find((s) => s.type === 'end');
-  const out = score({ duration: L.duration, revealAt: L.revealAt, endAt: endScene ? endScene.start : null, cues: L.cues as any, vo, music: p.music.mode === 'none' ? false : resolveStyle(p.style || {}, p.intake.accent).music, seed: parseInt(key.slice(0, 6), 16) });
+  const out = score({ duration: L.duration, revealAt: L.revealAt, endAt: endScene ? endScene.start : null, cues: L.cues as any, vo, music: p.music.mode === 'none' ? false : scoreFor(p), seed: parseInt(key.slice(0, 6), 16) });
   const file = `audio/mix-${key}.wav`;
   fs.writeFileSync(projectPath(pid, file), wav(out.L, out.R));
   updateProject(pid, (pp) => { pp.audioFile = file; pp.audioHash = key; });
   log(vo.length ? `Soundtrack ready (${vo.length} voice lines)` : 'Soundtrack ready (no voice yet — music and effects only)', 100);
   return file;
+}
+
+/** The direction's score, unless casting picked one for this same direction. */
+export function scoreFor(p: ReturnType<typeof getProject>) {
+  const base = resolveStyle(p.style || {}, p.intake.accent).music;
+  const c = p.cast?.music;
+  if (c && c.genre && (!c.preset || c.preset === p.style?.preset)) return { ...base, genre: c.genre, bpm: c.bpm || base.bpm };
+  return base;
 }

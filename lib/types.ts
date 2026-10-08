@@ -132,7 +132,8 @@ export type Beat = z.infer<typeof Beat>;
 export const Talk = z.object({
   media: z.array(Media).default([]),
   layout: z.enum(['split', 'overlay']).default('split'),
-  music: z.string().default('lofi'),
+  music: z.string().default('auto'),
+  musicWhy: z.string().optional(),
   showCaptions: z.boolean().optional(),
   speaker: z.object({ name: z.string().default(''), role: z.string().default('') }).default({}),
   label: z.string().default(''),
@@ -147,6 +148,12 @@ export const Talk = z.object({
   planHash: z.string().optional(),
 });
 export type Talk = z.infer<typeof Talk>;
+
+/** Voice casting for ads: who speaks (members) and which scenes each one reads. Talks never use this — the founder keeps their own voice. */
+export const CastMember = z.object({ role: z.string(), voiceId: z.string(), name: z.string().default(''), why: z.string().default(''), energy: z.enum(['calm', 'balanced', 'energetic']).default('balanced'), labels: z.record(z.string()).default({}), preview: z.string().optional() });
+export type CastMember = z.infer<typeof CastMember>;
+export const Cast = z.object({ members: z.array(CastMember).default([]), assign: z.record(z.string()).default({}), why: z.string().default(''), music: z.object({ genre: z.string(), bpm: z.number().optional(), why: z.string().default(''), preset: z.string().optional() }).optional(), auto: z.boolean().default(true), at: z.string().optional() });
+export type Cast = z.infer<typeof Cast>;
 
 export const RenderOut = z.object({ id: z.string(), format: FormatId, file: z.string(), srt: z.string().optional(), at: z.string(), duration: z.number(), bytes: z.number() });
 export type RenderOut = z.infer<typeof RenderOut>;
@@ -173,6 +180,7 @@ export const Project = z.object({
   angles: z.array(Angle).default([]),
   angleId: z.string().optional(),
   talk: Talk.default({}),
+  cast: Cast.default({}),
   chat: z.array(ChatMsg).default([]),
   kind: z.string().default('ad'),                  // ad | explainer | launch | social
   favorite: z.boolean().default(false),

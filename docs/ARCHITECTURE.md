@@ -1,4 +1,4 @@
-# Truecut — architecture
+# TrueCut — architecture
 
 ## Overview
 

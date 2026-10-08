@@ -1,4 +1,4 @@
-// Truecut — creative directions. A direction is a complete visual + sonic identity:
+// TrueCut — creative directions. A direction is a complete visual + sonic identity:
 // palette, typefaces, background, HUD, captions, transitions, card style and music.
 // The AI picks one per video and remixes it (brand accent, theme, music, transition),
 // so no two videos share the same look and sound.

@@ -1,6 +1,6 @@
-# Truecut
+# TrueCut
 
-**Drop a link. Get a film.** Truecut is a chat-first studio that turns real material into short, motion-rich videos for LinkedIn and Instagram, and never puts anything on screen it can't trace back to a source.
+**Drop a link. Get a film.** TrueCut is a chat-first studio that turns real material into short, motion-rich videos for LinkedIn and Instagram, and never puts anything on screen it can't trace back to a source.
 
 Two kinds of video, one conversation with **Nick**, the AI director:
 
@@ -27,7 +27,7 @@ npm run dev            # → http://localhost:3100
 | `ANTHROPIC_API_KEY` | Fact extraction, angles, storyboards, the founder-talk edit, chat edits | Rule-based fallbacks |
 | `ELEVENLABS_API_KEY` | Voice-over for ads, **Scribe transcription** for founder talks | Ads get music and captions only. Talks need a transcript. |
 
-To reuse keys that already live elsewhere, point Truecut at those files. Only the keys above are read from them, and nothing is copied:
+To reuse keys that already live elsewhere, point TrueCut at those files. Only the keys above are read from them, and nothing is copied:
 
 ```bash
 TRUECUT_ENV_FILES=../linkedin-nick/.env,../agent-nick/.env.local

@@ -4,7 +4,7 @@ import { useProject, type Ctx, type Tab } from './useProject';
 import Composer from './Composer';
 import Monitor from './Monitor';
 import { Card } from './cards';
-import { I, NickMark } from './icons';
+import { I, TrueCutMark } from './icons';
 import { SourcesPanel, FactsPanel, BriefPanel, StoryboardPanel, VoicePanel, RenderPanel } from './panels';
 import { useShared } from './Shell';
 import { api } from './api';
@@ -63,7 +63,7 @@ export default function Studio({ id }: { id: string }) {
             {chat.length === 0 && <Welcome />}
             {chat.map((m) => (
               <div key={m.id} className={`msg ${m.role}`}>
-                {m.role === 'nick' && <span className="av"><NickMark size={28} /></span>}
+                {m.role === 'nick' && <span className="av"><TrueCutMark size={28} /></span>}
                 <div className="body">
                   {m.attachments?.length > 0 && <div className="att">{m.attachments.map((a, i) => <span key={i} className="spill"><span className="ico">{a.kind === 'url' ? <I.link size={11} /> : a.kind === 'path' ? <I.folder size={11} /> : <I.file size={11} />}</span><span className="ell">{a.label}</span></span>)}</div>}
                   {m.text && (m.role === 'user' ? <div className="bubble">{m.text}</div> : <div className="say" dangerouslySetInnerHTML={{ __html: md(m.text) }} />)}
@@ -72,7 +72,7 @@ export default function Studio({ id }: { id: string }) {
                 </div>
               </div>
             ))}
-            {busy && !p.chat[p.chat.length - 1]?.cards.some((c: any) => c.kind === 'progress' && !c.done) && <div className="msg nick"><span className="av"><NickMark size={28} /></span><div className="body"><div className="say shimmer">Thinking…</div></div></div>}
+            {busy && !p.chat[p.chat.length - 1]?.cards.some((c: any) => c.kind === 'progress' && !c.done) && <div className="msg nick"><span className="av"><TrueCutMark size={28} /></span><div className="body"><div className="say shimmer">Thinking…</div></div></div>}
           </div>
         </div>
         <div className="chatfoot"><Composer onSend={onSend} busy={busy} compact placeholder={p.scenes.length ? 'Ask for a change: “punchier hook”, “cut a 15s version”, “/direction neon”…' : 'Add another link, a path or a file, or just answer Nick…'} /></div>
@@ -99,6 +99,6 @@ export default function Studio({ id }: { id: string }) {
 }
 
 function Welcome() {
-  return <div className="msg nick"><span className="av"><NickMark size={28} /></span><div className="body"><div className="say">Hi, I&apos;m Nick. Give me your website, a repo or folder path, docs or notes, and I&apos;ll read them, show you what I found, and pitch three ways to tell the story.</div></div></div>;
+  return <div className="msg nick"><span className="av"><TrueCutMark size={28} /></span><div className="body"><div className="say">Hi, I&apos;m Nick. Give me your website, a repo or folder path, docs or notes, and I&apos;ll read them, show you what I found, and pitch three ways to tell the story.</div></div></div>;
 }
 export const md = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as any)[c]).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<span class="tc">$1</span>');

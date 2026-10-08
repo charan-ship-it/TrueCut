@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { api, fileUrl, timeAgo } from './api';
-import { I, NickMark } from './icons';
+import { I, TrueCutMark } from './icons';
 import { DIRECTIONS } from '@/public/engine/styles.js';
 
 type Row = { id: string; name: string; stage: string; updatedAt: string; scenes: number; renders: number; thumb: string | null; video: string | null; style: string; favorite: boolean; busy: boolean; length: number; last: string };
@@ -41,7 +41,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       <div className={`app ${collapsed ? 'collapsed' : ''}`}>
         <aside className="side">
           <div className="row between" style={{ paddingRight: 2 }}>
-            <Link href="/" className="brand"><NickMark /><span className="hide-c"><b>Truecut</b><small>by AIX</small></span></Link>
+            <Link href="/" className="brand"><TrueCutMark /><span className="hide-c"><b>TrueCut</b><small>by AIX</small></span></Link>
             <button className="btn ghost icon sm hide-c" title="Collapse sidebar (⌘\)" onClick={toggle}><I.side /></button>
           </div>
           {collapsed && <button className="navbtn" title="Expand sidebar" onClick={toggle} style={{ justifyContent: 'center' }}><I.side /></button>}

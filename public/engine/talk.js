@@ -1,4 +1,4 @@
-// Truecut — founder talk engine. A real person on camera + an illustrated "explainer" panel that
+// TrueCut — founder talk engine. A real person on camera + an illustrated "explainer" panel that
 // changes with every beat of what they say (headline with one accent word, a subline, and an
 // animated illustration composed from the motion toolkit below).
 // Pure helpers at the top are shared with the server (timing, cues, captions); the DOM lives in mount().

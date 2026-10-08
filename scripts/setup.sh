@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time setup for Truecut.
+# One-time setup for TrueCut.
 set -e
 cd "$(dirname "$0")/.."
 echo "→ Installing dependencies (includes a bundled ffmpeg)…"

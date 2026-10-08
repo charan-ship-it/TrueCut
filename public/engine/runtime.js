@@ -1,4 +1,4 @@
-// Truecut — browser runtime. Builds a composition into DOM and renders any time t
+// TrueCut — browser runtime. Builds a composition into DOM and renders any time t
 // deterministically (same frame for preview scrubbing and for the frame-by-frame renderer).
 // Every visual token comes from the creative direction (styles.js), so each video looks different.
 import { layout, FORMATS, localOffset, SCENE_TYPES } from './timeline.js';

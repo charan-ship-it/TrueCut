@@ -2,7 +2,7 @@
   "name": "truecut",
   "version": "0.1.0",
   "private": true,
-  "description": "Nick Motion \u2014 turn any URL, repo or folder into a fact-checked motion-graphics video ad.",
+  "description": "TrueCut — drop a link, get a film: fact-checked motion videos and founder-talk edits, directed in a conversation.",
   "type": "module",
   "engines": {
     "node": ">=20"

@@ -10,7 +10,8 @@ import { analyze, storyboard, reviseScene, callTool } from './ai';
 import { voiceAll } from './voice';
 import { buildAudio } from './audio';
 import { renderProject } from './render';
-import { ingestMedia, isMedia, planTalk, buildProxies, renderTalk, reviseBeat } from './talk';
+import { castVoices } from './cast';
+import { ingestMedia, isMedia, planTalk, buildProxies, buildProxiesFresh, renderTalk, reviseBeat } from './talk';
 import { ffmpeg } from './media';
 import { projectPath } from './store';
 import { checkScenes } from './facts';
@@ -166,7 +167,7 @@ async function talkIntake(pid: string, pr: Prog, added: string[]) {
   pr.finish('Transcribed');
   const q = getProject(pid); const m = q.talk.media[q.talk.media.length - 1];
   if (/^Untitled video/.test(q.name) || q.name === m.name) updateProject(pid, (pp) => { pp.name = m.name.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' '); });
-  post(pid, { role: 'nick', text: `Got the recording: **${fmtMin(m.duration)}**, ${m.words} words${m.speakers.length > 1 ? `, ${m.speakers.length} speakers` : ''}. Here's the transcript. Tell me who's speaking and how long you want it, and I'll cut it, then design an illustration for every beat.`, cards: [{ kind: 'transcript' }, ...(added.some((id) => !q.sources.find((s) => s.id === id)?.meta?.media) ? [{ kind: 'sources', ids: added }] : []), { kind: 'talkbrief' }] });
+  post(pid, { role: 'nick', text: `Got the recording: **${fmtMin(m.duration)}**, ${m.words} words${m.speakers.length > 1 ? `, ${m.speakers.length} speakers` : ''}. Here's the transcript. Tell me who's speaking and how long you want it, and I'll cut it, then design an illustration for every beat. The audio is always the speaker's own voice. I never re-voice a founder.`, cards: [{ kind: 'transcript' }, ...(added.some((id) => !q.sources.find((s) => s.id === id)?.meta?.media) ? [{ kind: 'sources', ids: added }] : []), { kind: 'talkbrief' }] });
   updateProject(pid, (pp) => { pp.stage = 'questions'; });
 }
 const fmtMin = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
@@ -264,6 +265,7 @@ async function writeStory(pid: string, jobId: string) {
   pr.step('Writing scenes from your verified facts');
   await storyboard(pid, sublog(pr));
   pr.step('Running the fact guard');
+  if (config.elevenKey) { pr.step('Casting the voice and choosing the score'); try { await castVoices(pid, sublog(pr)); } catch (e: any) { pr.fail(e.message); } }
   pr.finish('Storyboard ready');
   const p = getProject(pid);
   const errs = checkScenes(p).filter((i) => i.level === 'error');
@@ -271,8 +273,8 @@ async function writeStory(pid: string, jobId: string) {
   post(pid, {
     role: 'nick',
     text: `${p.scenes.length} scenes, ${words} spoken words, in the **${DIRECTIONS[p.style?.preset || 'signal']?.label}** direction. It's playing on the right.${errs.length ? ` ⚠ ${errs.length} line(s) use something I couldn't trace. They're flagged below.` : ' Every number on screen traces back to a source.'}`,
-    cards: [{ kind: 'storyboard' }, { kind: 'directions' }],
-    replies: ['Render it', 'Make the hook punchier', 'Make it shorter', 'Try another look'],
+    cards: [{ kind: 'storyboard' }, ...(getProject(pid).cast.members.length ? [{ kind: 'cast' }] : []), { kind: 'directions' }],
+    replies: ['Render it', 'Make the hook punchier', 'Try a different voice', 'Try another look'],
   });
 }
 
@@ -295,7 +297,8 @@ async function render(pid: string, formats: FormatId[] | undefined, jobId: strin
   if (!p.scenes.length) { post(pid, { role: 'nick', text: "There's no storyboard yet. Let me write one first.", replies: ['Write the storyboard'] }); return; }
   const fm = (formats?.length ? formats : p.intake.formats) as FormatId[];
   const pr = progress(pid, jobId, 'Making your video');
-  if (config.elevenKey) { pr.step('Recording the voice-over'); try { await voiceAll(pid, sublog(pr)); } catch (e: any) { pr.fail(e.message); } }
+  if (config.elevenKey && !getProject(pid).cast.members.length) { pr.step('Casting the voice'); try { await castVoices(pid, sublog(pr)); } catch (e: any) { pr.fail(e.message); } }
+  if (config.elevenKey) { const c = getProject(pid).cast; pr.step(`Recording the voice-over${c.members.length ? ` (${c.members.map((m) => m.name).join(' + ')})` : ''}`); try { await voiceAll(pid, sublog(pr)); } catch (e: any) { pr.fail(e.message); } }
   else pr.step('No voice key set, so rendering with music and captions only');
   pr.step('Scoring music and sound design');
   await buildAudio(pid, sublog(pr));
@@ -320,7 +323,7 @@ const DECIDE_TOOL = {
   input_schema: { type: 'object', required: ['reply', 'actions'], properties: {
     reply: { type: 'string', description: 'short, warm reply in plain language (1-2 sentences). Say what you are about to do.' },
     actions: { type: 'array', items: { type: 'object', required: ['do'], properties: {
-      do: { type: 'string', enum: ['revise_scene', 'restoryboard', 'set_length', 'set_brief', 'set_direction', 'propose_angles', 'render', 'delete_scene', 'set_layout', 'set_captions', 'none'] },
+      do: { type: 'string', enum: ['revise_scene', 'restoryboard', 'set_length', 'set_brief', 'set_direction', 'propose_angles', 'render', 'delete_scene', 'set_layout', 'set_captions', 'recast', 'none'] },
       layout: { type: 'string', enum: ['split', 'overlay'] }, captions: { type: 'boolean' },
       scene: { type: 'number', description: '1-based scene number for revise/delete' },
       instruction: { type: 'string' }, length: { type: 'number' }, preset: { type: 'string', enum: Object.keys(DIRECTIONS) },
@@ -336,7 +339,7 @@ async function interpret(pid: string, text: string, jobId: string) {
   if (!plan && config.anthropicKey) {
     plan = await callTool<any>({
       model: config.model, maxTokens: 1500,
-      system: `You are Nick, the director inside Truecut, a tool that turns real product sources into motion-graphics video ads. Map the user's message to actions. Never invent facts. If they ask for something general ("punchier", "more energy"), revise the relevant scenes or restoryboard with that instruction. Directions: ${Object.entries(DIRECTIONS).map(([k, d]: any) => `${k} (${d.label})`).join(', ')}.`,
+      system: `You are Nick, the director inside TrueCut, a tool that turns real product sources into motion-graphics video ads. Map the user's message to actions. Never invent facts. If they ask for something general ("punchier", "more energy"), revise the relevant scenes or restoryboard with that instruction. Anything about the VOICE(S), narrator, accent, a second voice or the music/score → recast with their words as the instruction. Directions: ${Object.entries(DIRECTIONS).map(([k, d]: any) => `${k} (${d.label})`).join(', ')}.`,
       tool: DECIDE_TOOL,
       content: [{ type: 'text', text: `Stage: ${p.stage}. Direction: ${p.style?.preset}. Length target: ${p.intake.length}s.\nStoryboard:\n${p.scenes.map((s, i) => `${i + 1}. [${s.type}] ${s.vo?.text || ''}`).join('\n') || '(none yet)'}\n\nUser: ${text}` }],
     });
@@ -358,6 +361,7 @@ async function interpret(pid: string, text: string, jobId: string) {
       const sc = getProject(pid).scenes[ac.scene - 1];
       if (sc) { const pr = progress(pid, jobId, `Revising scene ${ac.scene}`); pr.step(ac.instruction); await reviseScene(pid, sc.id, ac.instruction); pr.finish(`Scene ${ac.scene} revised`); changed = true; }
     }
+    if (ac.do === 'recast') { await recast(pid, ac.instruction || text, jobId); }
     if (ac.do === 'render') { await render(pid, ac.formats, jobId); return; }
   }
   if (restory) return writeStory(pid, jobId);
@@ -367,13 +371,26 @@ async function interpret(pid: string, text: string, jobId: string) {
 async function interpretTalk(pid: string, text: string, jobId: string) {
   const p = getProject(pid);
   if (!p.talk.beats.length) { post(pid, { role: 'nick', text: 'Fill in the brief above and hit **Cut it**: I need the speaker and the length before I edit.' }); return; }
-  let plan = rules(text, p);
   const t = text.trim().toLowerCase();
+  // the founder's voice is never replaced: answer requests to re-voice / dub / add a narrator
+  if (/\b(voice ?over|re-?voice|dub|narrat|ai voice|different voice|another voice|new voice|\/voice)\b/.test(t) && !/music|bed|score/.test(t)) {
+    post(pid, { role: 'nick', text: "In founder talks the audio is always the founder's own recorded voice. I never replace, re-voice or add a synthetic narrator to it. I can change the music bed under it (lo-fi, piano, ambient, cinematic, bright, or none), the cut, the captions or the look.", replies: ['Music: piano', 'Music: none', 'Render it'] });
+    return;
+  }
+  const mus = t.match(/^(?:\/music|music:?|use)\s+(lo-?fi|piano|ambient|cinematic|bright|none|no music)\b/);
+  if (mus) {
+    const g = mus[1].replace('lo-fi', 'lofi').replace('no music', 'none');
+    updateProject(pid, (pp) => { pp.talk.music = g; pp.talk.mix = undefined; });
+    const pr = progress(pid, jobId, 'Re-scoring the bed'); pr.step(g === 'none' ? 'Founder voice only' : `A quiet ${g} bed under the founder's voice`); await buildProxiesFresh(pid, sublog(pr)); pr.finish('Bed updated');
+    post(pid, { role: 'nick', text: g === 'none' ? 'Music off. It\'s just the founder now.' : `Switched the bed to **${g}**, kept low under the founder's voice.`, cards: [{ kind: 'edit' }], replies: ['Render it'] });
+    return;
+  }
+  let plan = rules(text, p);
   const lay = t.match(/\b(split|overlay)\b/); if (!plan && lay && /\b(layout|switch|use|try)\b/.test(t)) plan = { reply: '', actions: [{ do: 'set_layout', layout: lay[1] }] };
   if (!plan && /captions? (on|off)|(show|hide|add|remove) captions/.test(t)) plan = { reply: '', actions: [{ do: 'set_captions', captions: /on|show|add/.test(t) }] };
   if (!plan && config.anthropicKey) plan = await callTool<any>({
     model: config.model, maxTokens: 1500,
-    system: `You are Nick, the editor inside Truecut. This project is a FOUNDER TALK: a real recording cut into a short with an illustrated panel per beat. Map the user's message to actions. "scene N" means beat N. restoryboard = re-edit the whole cut with the instruction (e.g. "start with the tribal knowledge bit", "more energy", "drop the intro"). revise_scene = redraw one beat's headline/illustration. set_layout split|overlay. Directions: ${Object.keys(DIRECTIONS).join(', ')}.`,
+    system: `You are Nick, the editor inside TrueCut. This project is a FOUNDER TALK: a real recording cut into a short with an illustrated panel per beat. Map the user's message to actions. "scene N" means beat N. restoryboard = re-edit the whole cut with the instruction (e.g. "start with the tribal knowledge bit", "more energy", "drop the intro"). revise_scene = redraw one beat's headline/illustration. set_layout split|overlay. Directions: ${Object.keys(DIRECTIONS).join(', ')}.`,
     tool: DECIDE_TOOL,
     content: [{ type: 'text', text: `Length now: ${p.talk.duration.toFixed(0)}s (target ${p.intake.length}s). Layout: ${p.talk.layout}. Look: ${p.style?.preset}.\nBeats:\n${p.talk.beats.map((b, i) => `${i + 1}. "${b.headline}" [${b.visual?.kind}]`).join('\n')}\n\nUser: ${text}` }],
   });
@@ -396,6 +413,15 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
   if (changed) post(pid, { role: 'nick', text: 'Updated. The monitor has the change.', cards: [{ kind: 'edit' }], replies: ['Render it', 'Try another look'] });
 }
 
+async function recast(pid: string, instruction: string, jobId: string) {
+  const pr = progress(pid, jobId, 'Recasting');
+  pr.step(instruction ? `“${instruction.slice(0, 80)}”` : 'Choosing a different cast');
+  await castVoices(pid, sublog(pr), instruction);
+  pr.finish('Recast');
+  const c = getProject(pid).cast;
+  post(pid, { role: 'nick', text: c.members.length ? `New cast: **${c.members.map((m) => `${m.name}${c.members.length > 1 ? ` (${m.role})` : ''}`).join(' + ')}**. ${c.why}` : "I couldn't reach the voice library just now.", cards: c.members.length ? [{ kind: 'cast' }] : [], replies: ['Render it', 'Try a different voice'] });
+}
+
 /** Cheap deterministic intents (work without an AI key). */
 function rules(text: string, p: Project): { reply: string; actions: any[] } | null {
   const t = text.trim().toLowerCase();
@@ -408,6 +434,9 @@ function rules(text: string, p: Project): { reply: string; actions: any[] } | nu
   if (/^\/?render( it)?\.?$/.test(t)) return { reply: '', actions: [{ do: 'render' }] };
   if (/^\/?(write|redo) (the )?storyboard\.?$/.test(t)) return { reply: '', actions: [{ do: 'restoryboard' }] };
   if (/^\/angles$|^new angles$/.test(t)) return { reply: '', actions: [{ do: 'propose_angles' }] };
+  const vname = t.match(/^\/voice\s+(.+)$/); if (vname) return { reply: '', actions: [{ do: 'recast', instruction: `Use the voice named "${vname[1]}" as the narrator.` }] };
+  if (/^(try )?(a )?different voice$/.test(t)) return { reply: '', actions: [{ do: 'recast', instruction: 'Try a clearly different narrator voice from the current one.' }] };
+  if (/^(use )?(a )?(single|one) voice$/.test(t)) return { reply: '', actions: [{ do: 'recast', instruction: 'Use a single narrator for every line.' }] };
   if (t === 'try again') return { reply: '', actions: [{ do: p.scenes.length ? 'restoryboard' : 'propose_angles' }] };
   return null;
 }

@@ -1,7 +1,7 @@
 import './globals.css';
 import Shell from '@/components/Shell';
 import { fontFaceCss } from '@/public/engine/styles.js';
-export const metadata = { title: 'Truecut', description: 'Drop a link, get a film. Fact-checked motion-graphics ads, directed in a conversation.' };
+export const metadata = { title: 'TrueCut', description: 'Drop a link, get a film. Fact-checked motion videos and founder-talk edits, directed in a conversation.', openGraph: { title: 'TrueCut', description: 'Drop a link. Get a film.', images: ['/brand/truecut-social.png'] }, twitter: { card: 'summary_large_image', images: ['/brand/truecut-social.png'] } };
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" data-theme="dark" suppressHydrationWarning>

@@ -5,7 +5,7 @@ import { projectJobs, isBusy } from '@/lib/jobs';
 import { Project } from '@/lib/types';
 export const dynamic = 'force-dynamic';
 type C = { params: { id: string } };
-const EDITABLE = ['name', 'intake', 'facts', 'questions', 'visuals', 'scenes', 'music', 'brief', 'stage', 'style', 'favorite', 'kind', 'angleId', 'talk'] as const;
+const EDITABLE = ['name', 'intake', 'facts', 'questions', 'visuals', 'scenes', 'music', 'brief', 'stage', 'style', 'favorite', 'kind', 'angleId', 'talk', 'cast'] as const;
 const view = (id: string) => { const p = getProject(id); p.agentBusy = isBusy(id); return { project: p, issues: checkScenes(p), jobs: projectJobs(id).slice(0, 12) }; };
 export const GET = route(async (_r: Request, { params }: C) => ok(view(params.id)));
 export const PATCH = route(async (req: Request, { params }: C) => {
@@ -18,7 +18,7 @@ export const PATCH = route(async (req: Request, { params }: C) => {
       next.scenes = b.scenes.map((s: any) => { const old = p.scenes.find((o) => o.id === s.id); if (s.vo && old?.vo && old.vo.text === s.vo.text) return { ...s, vo: { ...old.vo, ...s.vo } }; if (s.vo) return { ...s, vo: { text: s.vo.text } }; return s; });
       next.audioHash = undefined;
     }
-    if (b.music) next.audioHash = undefined;
+    if (b.music || b.cast) next.audioHash = undefined;
     return Project.parse(next);
   });
   return ok(view(params.id));

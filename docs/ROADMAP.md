@@ -1,4 +1,4 @@
-# Truecut — roadmap
+# TrueCut — roadmap
 
 ## Next (v0.2)
 

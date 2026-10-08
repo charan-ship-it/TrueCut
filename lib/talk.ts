@@ -123,6 +123,7 @@ const PLAN_TOOL = {
     title: { type: 'string', description: 'short internal title of the piece' },
     label: { type: 'string', description: 'tiny header strip, uppercase-able, ≤34 chars, e.g. "TRIBAL KNOWLEDGE · SCRIBE"' },
     speaker: { type: 'object', properties: { name: { type: 'string' }, role: { type: 'string' } } },
+    music: { type: 'object', description: 'the bed under the founder\'s voice', properties: { genre: { type: 'string', enum: ['lofi', 'piano', 'ambient', 'cinematic', 'bright', 'none'] }, why: { type: 'string' } } },
     keep: { type: 'array', description: 'word-index ranges to KEEP, in chronological order (whole sentences or clauses; drop filler, false starts, repetition, tangents)', items: { type: 'object', required: ['from', 'to'], properties: { from: { type: 'number' }, to: { type: 'number' } } } },
     beats: { type: 'array', description: 'consecutive beats covering all kept words, each ~1.8-5 s of speech (one idea each)', items: { type: 'object', required: ['from', 'to', 'headline', 'accent', 'visual'], properties: {
       from: { type: 'number', description: 'first word index (must be inside a kept range)' }, to: { type: 'number' },
@@ -151,6 +152,7 @@ export async function planTalk(pid: string, log: Log, instruction = '') {
 3. Each beat = one idea, ~1.8-5 seconds. Headlines are 1-3 words that NAME the idea (not a transcript). One accent word per headline.
 4. Illustrations must depict what is said at that moment. Numbers in any illustration MUST be numbers the speaker says (or listed facts). Never invent customers, results or figures — when you need generic shapes (bars, folders, people), use counts and highlights, not fake labelled data.
 5. Use the product/company name only as the speaker says it or from the facts.
+5b. Pick the music bed that fits the speaker's tone and pace (warm/reflective → piano or ambient, upbeat founder energy → bright or lofi, big-vision → cinematic, or none when the talk is intimate). The founder's own voice is always the audio; the bed just sits quietly under it.
 6. Headlines in sentence case ("When they leave", not "When They Leave"); the accent must be one of the headline's words, exactly.
 ${TOOLKIT_SPEC}`;
     const planPrompt = `Brand: ${p.intake.brandName || ''} · Product: ${p.intake.productName || ''}\nSpeaker: ${p.talk.speaker.name || 'unknown'} ${p.talk.speaker.role ? '(' + p.talk.speaker.role + ')' : ''}\nAudience: ${p.intake.audience || ''}\n${instruction || p.talk.instruction ? `EDITOR'S NOTE FROM THE CUSTOMER: ${instruction || p.talk.instruction}\n` : ''}\nVISUALS AVAILABLE (for image/brand kinds):\n${vis || '—'}\n\nOTHER FACTS:\n${facts || '—'}\n\nTRANSCRIPT (word index ranges [from-to], start time, speaker) — total ${fmtDur(media.duration)}, TARGET ${target}s:\n${sents.map((s) => `[${s.from}-${s.to}] (${fmtT(s.s)}, ${(s.e - s.s).toFixed(1)}s${s.sp && media.speakers.length > 1 ? ' ' + s.sp : ''}) ${s.text}`).join('\n')}\n\nCall record_edit.`;
@@ -219,6 +221,7 @@ export function applyPlan(pid: string, out: any, words: W[], media: Media) {
     p.talk.segments = segs.map(({ mid, start, end }) => ({ mid, start: +start.toFixed(3), end: +end.toFixed(3) }));
     p.talk.beats = beats; p.talk.duration = +duration.toFixed(3);
     if (out.label) p.talk.label = String(out.label).slice(0, 40);
+    if (out.music?.genre && (p.talk.music === 'auto' || !p.talk.music)) { p.talk.musicWhy = `${out.music.genre}: ${out.music.why || ''}`; }
     if (out.title) p.talk.title = String(out.title).slice(0, 80);
     if (out.speaker?.name && !p.talk.speaker.name && !/unknown|unnamed|^(the )?(founder|speaker|host|guest)$/i.test(out.speaker.name)) p.talk.speaker = { name: out.speaker.name, role: out.speaker.role || '' };
     p.talk.planHash = crypto.createHash('sha1').update(JSON.stringify(p.talk.segments)).digest('hex').slice(0, 10);
@@ -313,15 +316,16 @@ async function cutAudio(pid: string) {
 export async function talkMix(pid: string, log: Log) {
   let p = getProject(pid);
   const L = talkLayout(toComposition(p) as any);
-  const key = talkKey(p, JSON.stringify([p.talk.music, p.style, L.cues.length, 'm2']));
+  const key = talkKey(p, JSON.stringify([p.talk.music, p.talk.musicWhy, p.style, L.cues.length, 'm3']));
   const out = `talk/mix-${key}.wav`;
   if (p.talk.mix === out && fs.existsSync(projectPath(pid, out))) return out;
   log('Cutting the voice…');
   const voice = await cutAudio(pid);
   const pcm = await decodeAudio(projectPath(pid, voice), SR);
-  log(p.talk.music === 'none' ? 'Mixing voice…' : `Scoring a ${p.talk.music} bed under the voice…`);
+  log(p.talk.music === 'none' ? 'Mixing the founder’s voice…' : `Scoring a quiet bed under the founder’s own voice…`);
   const S = resolveStyle(p.style || {}, p.intake.accent);
-  const music = p.talk.music === 'none' ? false : { genre: p.talk.music || S.music.genre, bpm: Math.min(96, S.music.bpm), key: S.music.key };
+  const pick = p.talk.music === 'auto' || !p.talk.music ? (p.talk.musicWhy?.split(':')[0] || 'lofi') : p.talk.music;
+  const music = pick === 'none' ? false : { genre: pick, bpm: Math.min(96, S.music.bpm), key: S.music.key };
   const mixed = score({ duration: L.duration, revealAt: 0, endAt: L.duration, cues: L.cues as any, vo: [{ t: 0, pcm }], music, seed: 7, voPresence: 0.05, musicGain: 0.55 } as any);
   fs.writeFileSync(projectPath(pid, out), wav(mixed.L, mixed.R));
   updateProject(pid, (pp) => { pp.talk.mix = out; });
@@ -346,6 +350,12 @@ export async function buildCut(pid: string, fmt: FormatId, quality: 'proxy' | 'f
   await ffmpeg(args);
   if (quality === 'proxy') updateProject(pid, (pp) => { pp.talk.proxies = { ...pp.talk.proxies, [`${fmt}:${lay}`]: out }; });
   return out;
+}
+
+/** Rebuild preview proxies even if the cut is unchanged (e.g. the music bed changed). */
+export async function buildProxiesFresh(pid: string, log: Log) {
+  const p = getProject(pid);
+  for (const f of p.intake.formats) { const lay = p.talk.layout || 'split'; const key = talkKey(p, [f, lay, 'proxy'].join('|')); const out = projectPath(pid, `talk/proxy-${f}-${lay}-${key}.mp4`); try { fs.rmSync(out, { force: true }); } catch {} await buildCut(pid, f, 'proxy', log); }
 }
 
 export async function buildProxies(pid: string, log: Log) {

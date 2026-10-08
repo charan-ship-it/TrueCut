@@ -1,3 +1,4 @@
+import { useId } from 'react';
 // Inline icon set (1.6px strokes) — no icon dependency.
 const P = (d: string | JSX.Element, s = 16) => (props: { size?: number; style?: any }) => (
   <svg width={props.size || s} height={props.size || s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" style={props.style}>{typeof d === 'string' ? <path d={d} /> : d}</svg>
@@ -31,6 +32,28 @@ export const I = {
   edit: P('M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z'),
   trash: P('M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3'),
   dots: P(<><circle cx="5" cy="12" r="1.2" fill="currentColor" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /><circle cx="19" cy="12" r="1.2" fill="currentColor" /></>),
+  lock: P(<><rect x="5" y="10.5" width="14" height="10" rx="2" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" /></>),
+  mic: P(<><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></>),
   spark: P('M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6'),
 };
-export function NickMark({ size = 28 }: { size?: number }) { return <span className="mark" style={{ width: size, height: size }}><i /></span>; }
+/** The TrueCut mark: a play button sliced by a single blade cut, halves knocked slightly apart. Fixed brand colours (never re-tinted per project). */
+export function TrueCutMark({ size = 28, title = 'TrueCut' }: { size?: number; title?: string }) {
+  const u = useId().replace(/:/g, '');
+  const tri = 'M24 17 L24 47 L49 32 Z';
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" role="img" aria-label={title} style={{ flex: 'none', display: 'block' }}>
+      <defs>
+        <linearGradient id={`g${u}`} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#FF8A34" /><stop offset="1" stopColor="#E5590A" /></linearGradient>
+        <clipPath id={`lo${u}`}><path d="M0 64 L0 44.5 L64 16.5 L64 64 Z" /></clipPath>
+        <clipPath id={`hi${u}`}><path d="M0 0 L64 0 L64 16.5 L0 44.5 Z" /></clipPath>
+      </defs>
+      <rect x="2" y="2" width="60" height="60" rx="17" fill={`url(#g${u})`} />
+      <g clipPath={`url(#lo${u})`}><path d={tri} fill="#FFF6EC" stroke="#FFF6EC" strokeWidth="6" strokeLinejoin="round" /></g>
+      <g transform="translate(2.2 -2.6)"><g clipPath={`url(#hi${u})`}><path d={tri} fill="#FFF6EC" stroke="#FFF6EC" strokeWidth="6" strokeLinejoin="round" /></g></g>
+    </svg>
+  );
+}
+/** Full lockup: mark + wordmark. */
+export function TrueCutLogo({ size = 28 }: { size?: number }) {
+  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: size * 0.36 }}><TrueCutMark size={size} /><span style={{ font: `600 ${Math.round(size * 0.62)}px Geist, sans-serif`, letterSpacing: '-.03em', color: 'var(--ink)' }}>TrueCut</span></span>;
+}

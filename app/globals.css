@@ -1,4 +1,4 @@
-/* Truecut — "edit bay" design system.
+/* TrueCut — "edit bay" design system.
    Warm graphite base, one living accent (re-tinted per project to its art direction),
    Geist for UI, Instrument Serif for display moments, JetBrains Mono for timecode + labels. */
 @font-face{font-family:Geist;src:url(/engine/fonts/Geist-Regular.woff2);font-weight:400}
@@ -95,9 +95,6 @@ video{width:100%;border-radius:var(--rs);background:#000;display:block}
 .brand{display:flex;align-items:center;gap:10px;padding:2px 6px 12px;text-decoration:none}
 .brand b{font:600 15px Geist;letter-spacing:-.02em}
 .brand small{display:block;font:10px JBM;letter-spacing:.1em;color:var(--dim);text-transform:uppercase}
-.mark{width:30px;height:30px;border-radius:9px;flex:none;background:#0A0908;border:1px solid var(--line2);position:relative;overflow:hidden;display:grid;place-items:center}
-.mark i{position:absolute;inset:6px;border-radius:4px;border:2px solid var(--a);box-shadow:0 0 14px var(--ag)}
-.mark i:after{content:'';position:absolute;left:4px;top:50%;width:0;height:0;border-left:7px solid var(--a);border-top:4.5px solid transparent;border-bottom:4.5px solid transparent;transform:translateY(-50%)}
 .navbtn{display:flex;align-items:center;gap:10px;height:34px;padding:0 9px;border-radius:var(--rs);color:var(--mu);text-decoration:none;font-weight:500;cursor:pointer;border:1px solid transparent;background:transparent;font-size:13.5px;width:100%;white-space:nowrap}
 .navbtn:hover{color:var(--ink);background:var(--panel)}
 .navbtn.on{color:var(--ink);background:var(--panel);border-color:var(--line)}

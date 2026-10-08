@@ -1,4 +1,4 @@
-// Truecut — timeline. Pure functions, no DOM: shared by the browser player,
+// TrueCut — timeline. Pure functions, no DOM: shared by the browser player,
 // the server (audio cues, captions, validation) and the tests.
 import { resolveStyle } from './styles.js';
 

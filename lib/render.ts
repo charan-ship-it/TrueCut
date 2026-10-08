@@ -108,7 +108,7 @@ const ts = (x: number) => { const ms = Math.round(x * 1000); const h = Math.floo
 export function srt(L: any) { return L.captions.map((c: any, i: number) => `${i + 1}\n${ts(c.start)} --> ${ts(c.end + 0.4)}\n${c.words.map((w: any) => w.w).join(' ')}\n`).join('\n'); }
 
 export function factsLedger(p: ReturnType<typeof getProject>) {
-  const lines = [`# ${p.intake.productName || p.name} — facts used in this video`, '', `Generated ${new Date().toISOString().slice(0, 16).replace('T', ' ')} by Truecut. Every on-screen number and claim should trace to a row below.`, '', '| Scene | Spoken line | Facts | Status | Source quote |', '|---|---|---|---|---|'];
+  const lines = [`# ${p.intake.productName || p.name} — facts used in this video`, '', `Generated ${new Date().toISOString().slice(0, 16).replace('T', ' ')} by TrueCut. Every on-screen number and claim should trace to a row below.`, '', '| Scene | Spoken line | Facts | Status | Source quote |', '|---|---|---|---|---|'];
   p.scenes.forEach((s, i) => {
     const fs_ = (s.facts || []).map((id) => p.facts.find((f) => f.id === id)).filter(Boolean) as any[];
     if (!fs_.length) lines.push(`| ${i + 1} · ${s.type} | ${s.vo?.text || ''} | — | — | — |`);

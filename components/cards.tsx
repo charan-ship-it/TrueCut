@@ -21,6 +21,7 @@ export function Card(props: P) {
     case 'transcript': return <Transcript {...props} />;
     case 'talkbrief': return <TalkBrief {...props} />;
     case 'edit': return <Edit {...props} />;
+    case 'cast': return <CastCard {...props} />;
     case 'error': return <div className="issue error">{props.c.message}</div>;
     default: return null;
   }
@@ -300,7 +301,7 @@ function TalkBrief({ ctx, send, busy, chat, msgId }: P) {
   const p = ctx.p; const active = isLatestOfKind(chat, msgId, 'talkbrief') && !p.talk.beats.length;
   const m = p.talk.media[0];
   const [b, setB] = useState<any>(() => ({ name: p.talk.speaker.name, role: p.talk.speaker.role, length: Math.min(60, Math.round(Math.min(p.intake.length || 45, m?.duration || 45))), layout: p.talk.layout, music: p.talk.music, label: p.talk.label, captions: p.talk.showCaptions ?? false, note: p.talk.instruction, formats: p.intake.formats }));
-  if (!active) return <div className="ccard"><div className="hd"><span style={{ color: 'var(--good)' }}><I.check size={14} /></span><h3>Cut brief</h3><span className="grow" /><span className="xs dim">{[p.talk.speaker.name, `${p.intake.length}s`, p.talk.layout, p.talk.music].filter(Boolean).join(' · ')}</span></div></div>;
+  if (!active) return <div className="ccard"><div className="hd"><span style={{ color: 'var(--good)' }}><I.check size={14} /></span><h3>Cut brief</h3><span className="grow" /><span className="xs dim">{[p.talk.speaker.name, `${p.intake.length}s`, p.talk.layout, `${p.talk.music === 'auto' ? (p.talk.musicWhy?.split(':')[0] || 'auto') : p.talk.music} bed`, 'founder voice'].filter(Boolean).join(' · ')}</span></div></div>;
   const set = (k: string, v: any) => setB((x: any) => ({ ...x, [k]: v }));
   const Seg = ({ k, opts }: { k: string; opts: [any, string][] }) => <div className="seg" style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}>{opts.map(([v, l]) => <button key={String(v)} className={b[k] === v ? 'on' : ''} onClick={() => set(k, v)}>{l}</button>)}</div>;
   return (
@@ -319,11 +320,12 @@ function TalkBrief({ ctx, send, busy, chat, msgId }: P) {
               <span className="xs muted" style={{ whiteSpace: 'normal', textAlign: 'left', fontWeight: 400 }}>{d}</span></button>))}
         </div></label>
         <div className="grid2">
-          <label className="f">Music bed<Seg k="music" opts={[['lofi', 'Lo-fi'], ['piano', 'Piano'], ['ambient', 'Ambient'], ['none', 'None']]} /></label>
+          <label className="f">Music bed<Seg k="music" opts={[['auto', 'Auto'], ['lofi', 'Lo-fi'], ['piano', 'Piano'], ['ambient', 'Ambient'], ['cinematic', 'Cinematic'], ['none', 'None']]} /></label>
           <label className="f">Word captions<Seg k="captions" opts={[[false, 'Off'], [true, 'On']]} /></label>
         </div>
         <label className="f">Header strip (optional)<input value={b.label} onChange={(e) => set('label', e.target.value)} placeholder="e.g. TRIBAL KNOWLEDGE · SCRIBE (Nick writes one if blank)" /></label>
         <label className="f">Anything to keep or cut?<textarea rows={2} value={b.note} onChange={(e) => set('note', e.target.value)} placeholder="e.g. open on the tribal knowledge line, end on Meet Scribe, skip the bit about pricing" /></label>
+        <div className="row small" style={{ gap: 10, padding: '10px 12px', borderRadius: 10, background: 'var(--bg2)', border: '1px solid var(--line)' }}><I.lock size={15} /><span><b>Voice: the founder&apos;s own recording.</b> <span className="muted">TrueCut never replaces or re-voices a founder. The music bed only sits quietly underneath.</span></span></div>
         <div className="row"><span className="xs dim grow">Nick only uses the speaker&apos;s real words. Numbers on screen are ones they actually said.</span><button className="btn primary" disabled={busy} onClick={() => send({ type: 'talkbrief', brief: b })}>Cut it<I.arrowR size={15} /></button></div>
       </div>
     </div>
@@ -349,6 +351,57 @@ function Edit({ ctx, chat, msgId }: P) {
               {b.sub && <div className="xs dim" style={{ padding: '0 9px 10px' }}>{b.sub}</div>}
             </div>); })}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── voice cast ───
+const ENERGY: Record<string, string> = { calm: 'Calm', balanced: 'Balanced', energetic: 'Energetic' };
+const TONES = ['#F47920', '#5B8DEF', '#3FB68B', '#C46BE0'];
+function CastCard({ ctx, chat, msgId, send, busy }: P) {
+  const p = ctx.p; const c = p.cast;
+  const latest = isLatestOfKind(chat, msgId, 'cast');
+  const [voices, setVoices] = useState<any[]>([]);
+  const [playing, setPlaying] = useState<string | null>(null);
+  const audio = useMemo(() => (typeof Audio !== 'undefined' ? new Audio() : null), []);
+  useEffect(() => { if (latest) fetch('/api/voices').then((r) => r.json()).then((j) => setVoices(j.voices || [])).catch(() => {}); }, [latest]);
+  useEffect(() => () => { audio?.pause(); }, [audio]);
+  if (!c.members.length) return null;
+  if (!latest) return <div className="xs dim">(earlier cast: {c.members.map((m) => m.name).join(' + ')})</div>;
+  const play = (url?: string, key?: string) => { if (!audio || !url) return; if (playing === key) { audio.pause(); setPlaying(null); return; } audio.src = url; audio.play().catch(() => {}); setPlaying(key || url); audio.onended = () => setPlaying(null); };
+  const saveCast = (patch: any) => ctx.save({ cast: { ...c, ...patch, auto: false } as any });
+  const setMember = (k: number, m: any) => saveCast({ members: c.members.map((x, i) => (i === k ? { ...x, ...m } : x)) });
+  const lines = p.scenes.map((s, i) => ({ s, i })).filter((x) => x.s.vo?.text);
+  const roleOf = (sid: string) => c.assign[sid] || c.members[0].role;
+  const cycle = (sid: string) => { const rs = c.members.map((m) => m.role); const cur = rs.indexOf(roleOf(sid)); saveCast({ assign: { ...c.assign, [sid]: rs[(cur + 1) % rs.length] } }); };
+  const tone = (role: string) => TONES[Math.max(0, c.members.findIndex((m) => m.role === role)) % TONES.length];
+  const voiced = lines.some((x) => x.s.vo?.file);
+  return (
+    <div className="ccard">
+      <div className="hd"><span className="mono">Cast &amp; score</span><span className="grow" /><span className="xs dim">{c.members.length === 1 ? 'One voice' : `${c.members.length} voices`} · {c.music?.genre || 'direction'} score</span></div>
+      <div className="bd col" style={{ gap: 12 }}>
+        {c.why && <div className="small muted">{c.why}</div>}
+        {c.members.map((m, k) => (
+          <div key={k} className="row" style={{ gap: 12, alignItems: 'flex-start', padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 12, background: 'var(--bg2)' }}>
+            <button className="btn icon" onClick={() => play(m.preview, m.voiceId)} title="Hear this voice" style={{ width: 44, height: 44, borderRadius: '50%', background: TONES[k % TONES.length], borderColor: 'transparent', color: '#fff', flex: 'none' }}>{playing === m.voiceId ? <I.pause size={16} /> : <I.play size={16} style={{ marginLeft: 2 }} />}</button>
+            <div className="grow" style={{ minWidth: 0 }}>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}><b style={{ fontSize: 15 }}>{m.name}</b><span className="pill neu">{m.role}</span><span className="xs dim">{[m.labels?.accent, m.labels?.age?.replace('_', ' '), m.labels?.gender].filter(Boolean).join(' · ')}</span></div>
+              <div className="xs muted" style={{ marginTop: 3 }}>{m.why}</div>
+              <div className="row wrap" style={{ marginTop: 8, gap: 8 }}>
+                <div className="seg">{Object.entries(ENERGY).map(([e, l]) => <button key={e} className={m.energy === e ? 'on' : ''} onClick={() => setMember(k, { energy: e })}>{l}</button>)}</div>
+                {voices.length > 0 && <select value={m.voiceId} onChange={(e) => { const v = voices.find((x) => x.id === e.target.value); if (v) setMember(k, { voiceId: v.id, name: v.name.split(' - ')[0], labels: v.labels || {}, preview: v.preview, why: 'Picked by you' }); }} style={{ width: 'auto', maxWidth: 260, height: 30, padding: '0 8px' }}>
+                  {voices.map((v) => <option key={v.id} value={v.id}>{v.name}{v.labels?.accent ? ` · ${v.labels.accent}` : ''}</option>)}</select>}
+              </div>
+            </div>
+          </div>
+        ))}
+        {c.members.length > 1 && <div className="col" style={{ gap: 4 }}>
+          <div className="xs dim">Who reads what · click a line's voice to switch it</div>
+          {lines.map(({ s, i }) => <div key={s.id} className="row small" style={{ gap: 10 }}><span className="tc xs" style={{ width: 22 }}>{String(i + 1).padStart(2, '0')}</span><button className="pill" onClick={() => cycle(s.id)} style={{ border: 0, cursor: 'pointer', background: tone(roleOf(s.id)) + '22', color: tone(roleOf(s.id)), minWidth: 90, justifyContent: 'center' }}>{c.members.find((m) => m.role === roleOf(s.id))?.name}</button><span className="ell grow muted">{s.vo?.text}</span></div>)}
+        </div>}
+        {c.music && <div className="row small" style={{ gap: 10, paddingTop: 2 }}><span className="pill acc">Score: {c.music.genre}{c.music.bpm ? ` · ${c.music.bpm} bpm` : ''}</span><span className="xs muted grow">{c.music.why}</span></div>}
+        <div className="row"><span className="xs dim grow">{voiced ? 'Changes re-record only the affected lines.' : 'Voices are recorded when you render.'}</span><button className="btn sm" disabled={busy} onClick={() => send({ type: 'reply', text: 'Try a different voice' })}>Recast</button><button className="btn sm primary" disabled={busy} onClick={() => send({ type: 'render' })}>Render with this cast</button></div>
       </div>
     </div>
   );

@@ -26,7 +26,7 @@ const yes = has('--yes') || !process.stdin.isTTY;
 const rl = yes ? null : readline.createInterface({ input: process.stdin, output: process.stdout });
 const ask = async (q: string, def = '') => { if (!rl) return def; const a = (await rl.question(`\n? ${q}${def ? ` [${def}]` : ''}\n> `)).trim(); return a || def; };
 
-console.log(`\nTruecut · Claude ${config.anthropicKey ? 'on' : 'OFF (template mode)'} · ElevenLabs ${config.elevenKey ? 'on' : 'OFF (no voice)'}\n`);
+console.log(`\nTrueCut · Claude ${config.anthropicKey ? 'on' : 'OFF (template mode)'} · ElevenLabs ${config.elevenKey ? 'on' : 'OFF (no voice)'}\n`);
 const p0 = resume ? getProject(resume) : createProject(one('--name') || (urls[0] ? new URL(/^https?:/.test(urls[0]) ? urls[0] : 'https://' + urls[0]).hostname.replace(/^www\./, '') : path.basename(path.resolve(paths[0] || 'video'))));
 const id = p0.id;
 console.log(`Project ${id} → ${projectPath(id)}\n`);

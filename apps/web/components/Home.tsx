@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import Composer, { type Options } from './Composer';
 import { useShared } from './Shell';
 import VideoGrid from './VideoGrid';
-import { api } from './api';
+import { api, uploadFiles } from './api';
 import type { Attachment } from '@truecut/shared/detect';
 
 const STARTERS = [
@@ -25,7 +25,7 @@ export default function Home() {
     const action = { type: 'message', text, attachments: atts, options: { ...opts, length: opts.length || undefined, preset: opts.preset || undefined } };
     try {
       let res: any;
-      if (files.length) { const fd = new FormData(); fd.append('action', JSON.stringify(action)); files.forEach((f) => fd.append('files', f)); const x = await fetch('/api/projects', { method: 'POST', body: fd }); res = await x.json(); if (!x.ok) throw new Error(res.error); }
+      if (files.length) { res = await api('/api/projects', { json: { name: 'Untitled video' } }); const up = await uploadFiles(res.id, files); await api(`/api/projects/${res.id}/chat`, { json: { action: { ...action, attachments: [...atts, ...up] } } }); }
       else res = await api('/api/projects', { json: { action }, headers: { 'x-nm-chat': '1' } });
       refresh(); r.push(`/p/${res.id}`);
     } catch (e: any) { setErr(e.message); setBusy(false); }

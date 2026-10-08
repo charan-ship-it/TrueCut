@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from './api';
+import { api, uploadFiles } from './api';
 import { toComposition, layoutOf } from '@truecut/shared/compose';
 import { layout } from '@truecut/engine/timeline.js';
 import type { Project } from '@truecut/shared/types';
@@ -52,8 +52,8 @@ export function useProject(id: string) {
   const send = useCallback(async (action: any, files?: File[]) => {
     await flush();
     try {
-      if (files?.length) { const fd = new FormData(); fd.append('action', JSON.stringify(action)); files.forEach((f) => fd.append('files', f)); const r = await fetch(`/api/projects/${id}/chat`, { method: 'POST', body: fd }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Upload failed'); }
-      else await api(`/api/projects/${id}/chat`, { json: { action } });
+      if (files?.length) { const atts = await uploadFiles(id, files); action = { ...action, attachments: [...(action.attachments || []), ...atts] }; }
+      await api(`/api/projects/${id}/chat`, { json: { action } });
       await reload();
     } catch (e: any) { setToast(e.message); }
   }, [id, flush, reload]);

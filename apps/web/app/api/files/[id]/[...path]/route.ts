@@ -1,21 +1,40 @@
+// Serves a project's files to the browser. Local storage: straight from disk, with Range support.
+// Bucket storage: images, audio and video redirect to a short-lived signed link (bucket egress is free
+// and seeking works natively); text and JSON are proxied so the page can read them without CORS.
 import fs from 'node:fs';
 import path from 'node:path';
-import { projectPath } from '@truecut/storage';
+import { Readable } from 'node:stream';
+import { projectPath, mimeOf, isMediaFile, storageDriver, getObject, signedUrl } from '@truecut/storage';
 export const dynamic = 'force-dynamic';
-const MIME: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.srt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.json': 'application/json' };
+
 export async function GET(req: Request, { params }: { params: { id: string; path: string[] } }) {
+  const rel = params.path.join("/");
   let f: string;
-  try { f = projectPath(params.id, params.path.join('/')); } catch { return new Response('Bad path', { status: 400 }); }
-  if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) return new Response('Not found', { status: 404 });
-  const size = fs.statSync(f).size; const type = MIME[path.extname(f).toLowerCase()] || 'application/octet-stream';
+  try { f = projectPath(params.id, rel); } catch { return new Response('Bad path', { status: 400 }); }
+  const type = mimeOf(f);
   const dl = new URL(req.url).searchParams.has('download');
   const headers: Record<string, string> = { 'content-type': type, 'accept-ranges': 'bytes', 'cache-control': 'no-cache' };
   if (dl) headers['content-disposition'] = `attachment; filename="${path.basename(f)}"`;
-  const range = req.headers.get('range');
+  const range = req.headers.get('range') || undefined;
+
+  if (storageDriver() === 's3') {
+    if (isMediaFile(f) || dl) {
+      const url = await signedUrl(params.id, rel, { seconds: 3600, download: dl ? path.basename(f) : undefined, type });
+      return new Response(null, { status: 302, headers: { location: url, 'cache-control': 'private, max-age=600' } });
+    }
+    const o = await getObject(params.id, rel, range);
+    if (!o) return new Response('Not found', { status: 404 });
+    if ((o as any).unsatisfiable) return new Response(null, { status: 416 });
+    const h = { ...headers, 'content-length': String(o.size), ...(o.range ? { 'content-range': o.range } : {}) };
+    return new Response(Readable.toWeb(o.body) as any, { status: o.range ? 206 : 200, headers: h });
+  }
+
+  if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) return new Response('Not found', { status: 404 });
+  const size = fs.statSync(f).size;
   if (range) {
     const m = range.match(/bytes=(\d*)-(\d*)/); const start = m && m[1] ? +m[1] : 0; const end = m && m[2] ? Math.min(+m[2], size - 1) : size - 1;
-    const stream = fs.createReadStream(f, { start, end });
-    return new Response(stream as any, { status: 206, headers: { ...headers, 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': String(end - start + 1) } });
+    if (start >= size || start > end) return new Response(null, { status: 416, headers: { 'content-range': `bytes */${size}` } });
+    return new Response(Readable.toWeb(fs.createReadStream(f, { start, end })) as any, { status: 206, headers: { ...headers, 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': String(end - start + 1) } });
   }
-  return new Response(fs.createReadStream(f) as any, { headers: { ...headers, 'content-length': String(size) } });
+  return new Response(Readable.toWeb(fs.createReadStream(f)) as any, { headers: { ...headers, 'content-length': String(size) } });
 }

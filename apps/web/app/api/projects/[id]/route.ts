@@ -1,6 +1,6 @@
 import { ok, route } from '@/lib/http';
 import { deleteProject, getProject, updateProject } from '@truecut/db';
-import { removeProjectFiles } from '@truecut/storage';
+import { removeProject } from '@truecut/storage';
 import { checkScenes } from '@truecut/shared/facts';
 import { projectJobs, isBusy } from '@truecut/queue';
 import { Project } from '@truecut/shared/types';
@@ -24,4 +24,4 @@ export const PATCH = route(async (req: Request, { params }: C) => {
   });
   return ok(await view(params.id));
 });
-export const DELETE = route(async (_r: Request, { params }: C) => { await deleteProject(params.id); removeProjectFiles(params.id); return ok({ deleted: true }); });
+export const DELETE = route(async (_r: Request, { params }: C) => { await deleteProject(params.id); await removeProject(params.id); return ok({ deleted: true }); });

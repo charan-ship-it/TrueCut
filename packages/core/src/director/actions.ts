@@ -2,7 +2,7 @@
 // matching handler (registered here) is what the worker, or the inline driver, runs.
 import path from 'node:path';
 import { defineHandler, enqueue } from '@truecut/queue';
-import { ingestUrl, ingestPath, ingestText } from '../sources/ingest';
+import { ingestUrl, ingestPath, ingestText, ingestStoredUpload } from '../sources/ingest';
 import { analyze, storyboard, reviseScene } from '../ads/ai';
 import { voiceAll } from '../audio/voice';
 import { buildAudio } from '../audio/soundtrack';
@@ -20,6 +20,7 @@ defineHandler<{ sid: string; kind: string; value: string }>('ingest', async ({ s
     if (kind === 'url') { let u = value.trim(); if (!/^https?:\/\//i.test(u)) u = 'https://' + u; await ingestUrl(pid, sid, u, log); }
     else if (kind === 'path') { const abs = path.resolve(ROOT, value.trim().replace(/^~(?=\/)/, process.env.HOME || '~')); await ingestPath(pid, sid, abs, log); }
     else if (kind === 'text') { await ingestText(pid, sid, value); log('Saved text', 100); }
+    else if (kind === 'upload') { await ingestStoredUpload(pid, sid); log('Read the upload', 100); }
   } catch (e: any) {
     await updateProject(pid, (p) => { const s = p.sources.find((x) => x.id === sid); if (s) { s.status = 'error'; s.error = e.message; } });
     throw e;

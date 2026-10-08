@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import type { Ctx } from './useProject';
-import { api, fileUrl } from './api';
+import { api, fileUrl, uploadFiles } from './api';
 import { SCENE_TYPES } from '@truecut/engine/timeline.js';
 import type { Fact, Scene, Visual } from '@truecut/shared/types';
 
@@ -17,8 +17,9 @@ export function SourcesPanel(c: Ctx) {
   const fileRef = useRef<HTMLInputElement>(null);
   const add = async () => { if (!val.trim()) return; await c.act('sources', { kind, value: val }); setVal(''); };
   const upload = async (files: FileList | null) => {
-    if (!files?.length) return; const fd = new FormData(); [...files].forEach((f) => fd.append('files', f));
-    await fetch(`/api/projects/${p.id}/sources`, { method: 'POST', body: fd }); await c.reload();
+    if (!files?.length) return;
+    try { await uploadFiles(p.id, [...files], { ingest: true }); } catch (e: any) { alert(e.message); }
+    await c.reload();
   };
   const ingesting = c.busy('ingest') || c.busy('upload');
   return (<>

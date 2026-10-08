@@ -6,7 +6,7 @@ import path from 'node:path';
 import { config, ROOT } from '@truecut/config';
 import { getProject, newId, updateProject } from '@truecut/db';
 import { projectPath } from '@truecut/storage';
-import { addSource, ingestPath, ingestText, ingestUrl } from '../sources/ingest';
+import { addSource, ingestPath, ingestText, ingestUrl, ingestStoredUpload, pathsAllowed, PATHS_OFF } from '../sources/ingest';
 import { analyze, storyboard, reviseScene, callTool } from '../ads/ai';
 import { voiceAll } from '../audio/voice';
 import { buildAudio } from '../audio/soundtrack';
@@ -119,10 +119,15 @@ async function intake(pid: string, items: Attachment[], text: string, jobId: str
   const pr = await progress(pid, jobId, 'Reading your sources');
   const before = await getProject(pid);
   for (const it of items) {
-    if (it.kind === 'upload') continue; // already ingested by the upload route
+    if (it.kind === 'upload') { // stored by the uploads route; read it here, in the job
+      const src = (await getProject(pid)).sources.find((x) => x.id === it.ref);
+      if (src && src.status === 'pending' && !src.meta?.mediaFile) { await pr.step(`Reading ${it.label}`); await ingestStoredUpload(pid, it.ref); }
+      continue;
+    }
     const s = await addSource(pid, it.kind as any, it.ref, it.kind === 'text' ? it.label : undefined);
     try {
       if (it.kind === 'url') { await pr.step(`Visiting ${it.label}`); let u = it.ref.trim(); if (!/^https?:\/\//i.test(u)) u = 'https://' + u; await ingestUrl(pid, s.id, u, sublog(pr)); }
+      else if (it.kind === 'path' && !pathsAllowed()) throw new Error(PATHS_OFF);
       else if (it.kind === 'path') { const abs = path.resolve(ROOT, it.ref.trim().replace(/^~(?=\/)/, process.env.HOME || '~'));
         if (isMedia(abs) && fs.existsSync(abs) && fs.statSync(abs).isFile()) { await pr.step(`Transcribing ${it.label}`); await ingestMedia(pid, s.id, abs, path.basename(abs), sublog(pr)); }
         else { await pr.step(`Reading ${it.label}`); await ingestPath(pid, s.id, abs, sublog(pr)); } }

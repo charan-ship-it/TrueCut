@@ -5,7 +5,8 @@ import { imageSize } from 'image-size';
 import type { Page } from 'playwright';
 import { launchBrowser } from '../render/browser';
 import { getProject, updateProject, newId } from '@truecut/db';
-import { projectPath, writeAtomic, ensureProjectDirs } from '@truecut/storage';
+import { projectPath, writeAtomic, ensureProjectDirs, storageDriver } from '@truecut/storage';
+import { env } from '@truecut/config';
 import { toJpeg } from '../render/media';
 import type { Source, Visual } from '@truecut/shared/types';
 
@@ -149,7 +150,12 @@ function imgRank(rel: string, w: number) {
   return s;
 }
 
+/** Folder/file paths only mean something when TrueCut runs on your own machine. */
+export function pathsAllowed() { const v = env('TRUECUT_ALLOW_PATHS'); return v ? /^(1|true|yes)$/i.test(v) : storageDriver() === 'local'; }
+export const PATHS_OFF = "This TrueCut runs on a server, so it can't open folders on your computer. Upload the files, or paste a link to the repo or site.";
+
 export async function ingestPath(pid: string, sid: string, abs: string, log: Log) {
+  if (!pathsAllowed()) throw new Error(PATHS_OFF);
   if (!fs.existsSync(abs)) throw new Error(`Path not found: ${abs}`);
   const stat = fs.statSync(abs);
   const root = stat.isDirectory() ? abs : path.dirname(abs);
@@ -196,28 +202,39 @@ export async function ingestText(pid: string, sid: string, text: string) {
   await setSource(pid, sid, { status: 'ready', textFile, chars: text.length });
 }
 
-export async function ingestUpload(pid: string, sid: string, name: string, buf: Buffer) {
-  ensureProjectDirs(pid);
+/** Where an upload from the browser is stored before it is read (see the uploads API route). */
+export const uploadPath = (sid: string, name: string) => `sources/${sid}${path.extname(name).toLowerCase()}`;
+
+/** Read a file the browser uploaded (already in the project folder at uploadPath). */
+export async function ingestStoredUpload(pid: string, sid: string) {
+  const src = (await getProject(pid)).sources.find((x) => x.id === sid);
+  if (!src) throw new Error('Source not found');
+  const name = String(src.meta?.name || src.label);
+  const rel = String(src.meta?.upload || uploadPath(sid, name));
+  const file = projectPath(pid, rel);
+  if (!fs.existsSync(file)) { await setSource(pid, sid, { status: 'error', error: 'The uploaded file is missing. Please upload it again.' }); return; }
   const ext = path.extname(name).toLowerCase();
   if (IMG_EXT.has(ext)) {
-    const id = 'v' + newId().slice(0, 7); const raw = projectPath(pid, `sources/${id}${ext}`); fs.writeFileSync(raw, buf);
-    const file = ext === '.png' ? `assets/${id}.png` : `assets/${id}.jpg`;
-    if (ext === '.png') fs.copyFileSync(raw, projectPath(pid, file)); else await toJpeg(raw, projectPath(pid, file), 2000, 3);
-    const { w, h } = sizeOf(projectPath(pid, file));
-    await addVisuals(pid, [{ id, file, w, h, origin: name, sourceId: sid, kind: /logo/i.test(name) ? 'logo' : 'image', use: true } as Visual]);
+    const id = 'v' + newId().slice(0, 7);
+    const out = ext === '.png' ? `assets/${id}.png` : `assets/${id}.jpg`;
+    if (ext === '.png') fs.copyFileSync(file, projectPath(pid, out)); else await toJpeg(file, projectPath(pid, out), 2000, 3);
+    const { w, h } = sizeOf(projectPath(pid, out));
+    await addVisuals(pid, [{ id, file: out, w, h, origin: name, sourceId: sid, kind: /logo/i.test(name) ? 'logo' : 'image', use: true } as Visual]);
     await setSource(pid, sid, { status: 'ready', chars: 0 });
     return;
   }
-  if (TXT_EXT.has(ext) || ext === '.json') { await ingestText(pid, sid, buf.toString('utf8').slice(0, 300_000)); return; }
+  if (TXT_EXT.has(ext) || ext === '.json') { await ingestText(pid, sid, fs.readFileSync(file, 'utf8').slice(0, 300_000)); return; }
   if (MEDIA_EXT.has(ext)) { // recordings are transcribed by the talk pipeline (needs a job + progress)
-    const raw = `sources/${sid}${ext}`; fs.writeFileSync(projectPath(pid, raw), buf);
-    await setSource(pid, sid, { status: 'pending', meta: { mediaFile: raw, name } }); return;
+    await setSource(pid, sid, { status: 'pending', meta: { ...(src.meta || {}), mediaFile: rel, name } }); return;
   }
   await setSource(pid, sid, { status: 'error', error: `Unsupported file type ${ext}. Use images, recordings (.mp4/.mov/.mp3/.wav/.m4a), .md, .txt, .csv, .html, .vtt or paste the text.` });
 }
 
-export async function addSource(pid: string, kind: Source['kind'], ref: string, label?: string): Promise<Source> {
-  const s: Source = { id: 's' + newId().slice(0, 7), kind, ref, label: label || ref.slice(0, 80), addedAt: new Date().toISOString(), status: 'pending', chars: 0 };
+/** A file type TrueCut can read (checked by the upload route before accepting bytes). */
+export const canUpload = (name: string) => { const e = path.extname(name).toLowerCase(); return IMG_EXT.has(e) || TXT_EXT.has(e) || MEDIA_EXT.has(e) || e === '.json'; };
+
+export async function addSource(pid: string, kind: Source['kind'], ref: string, label?: string, meta?: Record<string, any>): Promise<Source> {
+  const s: Source = { id: 's' + newId().slice(0, 7), kind, ref, label: label || ref.slice(0, 80), addedAt: new Date().toISOString(), status: 'pending', chars: 0, ...(meta ? { meta } : {}) };
   await updateProject(pid, (p) => { p.sources.push(s); });
   return s;
 }

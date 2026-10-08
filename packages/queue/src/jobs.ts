@@ -7,7 +7,7 @@
 //           worker is deployed.
 import { createJob, finishJob, markRunning, reportJob, getJob, projectJobs, isBusy, busyProjects, STALE_MS, type Job } from '@truecut/db';
 import { env } from '@truecut/config';
-import { ensureProjectDirs } from '@truecut/storage';
+import { hydrate, flush as flushFiles } from '@truecut/storage';
 
 export { getJob, projectJobs, isBusy, busyProjects, type Job };
 export type Log = (msg: string, pct?: number) => void;
@@ -54,7 +54,6 @@ export async function runJob(id: string): Promise<void> {
   if (job.status === 'running' && job.heartbeatAt && Date.now() - Date.parse(job.heartbeatAt) < STALE_MS) return;
   const def = reg.handlers.get(job.kind);
   if (!def) { await finishJob(id, { error: `No handler for job kind "${job.kind}"` }); return; }
-  if (job.projectId) ensureProjectDirs(job.projectId);
   const lines: string[] = [...job.log];
   let message = job.message, progress = job.progress, dirty = false, last = 0, pending: Promise<void> = Promise.resolve();
   const flush = async () => { if (!dirty) return pending; dirty = false; const snap = { message, progress, log: lines.slice(-300) }; pending = pending.then(() => reportJob(id, snap)).catch((e) => console.error('[job flush]', e?.message)); return pending; };
@@ -63,17 +62,26 @@ export async function runJob(id: string): Promise<void> {
     lines.push(`${new Date().toISOString().slice(11, 19)} ${msg}`); if (lines.length > 400) lines.splice(0, 100);
     dirty = true; const t = Date.now(); if (t - last > 700) { last = t; void flush(); }
   };
-  // heartbeat even when a handler is quiet for a while (e.g. a long Claude call)
-  const beat = setInterval(() => { dirty = true; void flush(); }, 20_000);
+  const pid = job.projectId;
+  // heartbeat even when a handler is quiet for a while (e.g. a long Claude call); files written so far
+  // go to the bucket on the same beat so screenshots and previews show up while the job is still running
+  const beat = setInterval(() => {
+    dirty = true; void flush();
+    if (pid) flushFiles(pid, { settleMs: 3000 }).catch((e) => console.error('[job files]', e?.message));
+  }, 15_000);
   await markRunning(id);
   try {
+    if (pid) { const h = await hydrate(pid); if (h.downloaded) log(`Fetched ${h.downloaded} project file(s)`); }
     const result = await def.fn(job.payload ?? {}, { job: { ...job, status: 'running' }, log, flush });
     clearInterval(beat);
+    if (pid) await flushFiles(pid);
     if (message === 'Queued') { message = 'Done'; dirty = true; }
     await flush();
     await finishJob(id, { result, log: lines.slice(-300) });
   } catch (e: any) {
-    clearInterval(beat); await flush().catch(() => {});
+    clearInterval(beat);
+    if (pid) await flushFiles(pid).catch((x) => console.error('[job files]', x?.message));
+    await flush().catch(() => {});
     console.error(`[job ${job.kind} ${id}]`, e);
     await finishJob(id, { error: e?.message || String(e), log: lines.slice(-300) });
   }

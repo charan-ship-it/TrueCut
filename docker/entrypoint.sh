@@ -5,6 +5,7 @@ set -e
 case "$1" in
   web)
     export TRUECUT_QUEUE="${TRUECUT_QUEUE:-pgboss}"
+    export TRUECUT_AUTH="${TRUECUT_AUTH:-required}"   # a deployed app is never open to the internet
     cd /app/apps/web
     exec node /app/node_modules/next/dist/bin/next start -H 0.0.0.0 -p "${PORT:-3100}" ;;
   worker)

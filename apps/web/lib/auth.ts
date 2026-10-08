@@ -7,7 +7,7 @@
 //   ALLOWED_EMAIL_DOMAINS                     e.g. aixccelerate.com (comma-separated)
 //   ALLOWED_EMAILS                            extra individual addresses (optional)
 //
-// Without GOOGLE_CLIENT_ID in development, sign-in is off and everyone is the "Local" user.
+// On your own machine without GOOGLE_CLIENT_ID, sign-in is off and everyone is the "Local" user.
 import type { NextAuthOptions } from 'next-auth';
 import { getServerSession } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
@@ -17,7 +17,9 @@ import { upsertUser, isMember, projectMeta, DEFAULT_WORKSPACE_ID, type SessionUs
 loadEnv();
 
 const list = (v: string) => v.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-export const authEnabled = () => !!env('GOOGLE_CLIENT_ID') || process.env.NODE_ENV === 'production' && env('TRUECUT_AUTH') !== 'off';
+/** Sign-in is on when Google is configured, on Railway, or in the Docker image (TRUECUT_AUTH=required),
+ *  even before Google is set up (then nobody gets in). TRUECUT_AUTH=off turns it off. */
+export const authEnabled = () => env('TRUECUT_AUTH') !== 'off' && (!!env('GOOGLE_CLIENT_ID') || env('TRUECUT_AUTH') === 'required' || !!env('RAILWAY_ENVIRONMENT_ID'));
 
 export function emailAllowed(email?: string | null) {
   if (!email) return false;

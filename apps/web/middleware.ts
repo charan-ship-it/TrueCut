@@ -3,7 +3,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 
-const enabled = () => !!process.env.GOOGLE_CLIENT_ID || (process.env.NODE_ENV === 'production' && process.env.TRUECUT_AUTH !== 'off');
+const e = process.env;
+const enabled = () => e.TRUECUT_AUTH !== 'off' && (!!e.GOOGLE_CLIENT_ID || e.TRUECUT_AUTH === 'required' || !!e.RAILWAY_ENVIRONMENT_ID);
 
 export async function middleware(req: NextRequest) {
   if (!enabled()) return NextResponse.next();

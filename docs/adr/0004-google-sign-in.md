@@ -12,7 +12,7 @@ TrueCut is for the AIX team first, and may later live inside AIX Core. Everyone 
 - Only verified addresses at `ALLOWED_EMAIL_DOMAINS`, or listed in `ALLOWED_EMAILS`, may sign in. With neither set, nobody can (fail closed). In Google Cloud the OAuth app is *Internal* to the Workspace as a second fence.
 - Middleware protects every page and API route. Project routes also check that the project is in the user's workspace.
 - Each sign-in upserts the user and adds them to the single team workspace (`ws_default`). The first person to sign in becomes its owner. Projects and jobs record `created_by`.
-- Locally, sign-in is off unless `GOOGLE_CLIENT_ID` is set.
+- Sign-in is on whenever `GOOGLE_CLIENT_ID` is set, on Railway, and in the Docker image. On a laptop without Google keys it is off. `TRUECUT_AUTH=off` forces it off, `required` forces it on.
 
 ## Consequences
 

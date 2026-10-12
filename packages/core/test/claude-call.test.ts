@@ -59,6 +59,32 @@ describe.skipIf(!dbReady)('callTool', () => {
     await deleteKey(k.id, DEFAULT_WORKSPACE_ID);
   });
 
+  it('falls back to asking when a model cannot be forced to call the tool, and remembers it', async () => {
+    calls = [];
+    next = (b) => (b.tool_choice?.type === 'tool'
+      ? { status: 400, json: { type: 'error', error: { type: 'invalid_request_error', message: 'tool_choice: type "tool" and "any" are not supported for this model.' } } }
+      : answer());
+    const out = await runWithContext(ctx(), () => callTool<any>({ model: 'claude-future-1', system: 's', tool, content: [] }));
+    expect(out).toEqual({ ok: true });
+    expect(calls.map((c) => c.body.tool_choice.type)).toEqual(['tool', 'auto']);
+    expect(calls[1].body.system).toMatch(/only by calling the `record_test` tool/);
+    calls = [];
+    await runWithContext(ctx(), () => callTool<any>({ model: 'claude-future-1', system: 's', tool, content: [] }));
+    expect(calls.map((c) => c.body.tool_choice.type)).toEqual(['auto']); // remembered
+  });
+
+  it('accepts JSON written as text, or asks once more, when the model does not call the tool', async () => {
+    const text = (t: string) => ({ status: 200, json: { id: 'm', type: 'message', role: 'assistant', model: 'claude-future-1', stop_reason: 'end_turn', content: [{ type: 'text', text: t }], usage: { input_tokens: 10, output_tokens: 10 } } });
+    calls = []; next = () => text('Here you go:\n```json\n{"ok": true}\n```');
+    expect(await runWithContext(ctx(), () => callTool<any>({ model: 'claude-future-1', system: 's', tool, content: [] }))).toEqual({ ok: true });
+    calls = []; let n = 0; next = () => (n++ === 0 ? text('Sure, I can help with that.') : answer());
+    expect(await runWithContext(ctx(), () => callTool<any>({ model: 'claude-future-1', system: 's', tool, content: [] }))).toEqual({ ok: true });
+    expect(calls).toHaveLength(2);
+    calls = []; next = () => text('No.');
+    await expect(runWithContext(ctx(), () => callTool<any>({ model: 'claude-future-1', system: 's', tool, content: [] }))).rejects.toMatchObject({ code: 'no_tool_output' });
+    expect(calls).toHaveLength(2);
+  });
+
   it('explains a missing key', async () => {
     await expect(runWithContext({ workspaceId: DEFAULT_WORKSPACE_ID, keys: { anthropic: '', anthropicSource: 'none' } }, () => callTool({ model: 'claude-opus-5-5', system: 's', tool, content: [], what: 'Writing the storyboard' }))).rejects.toThrow(/Settings → API keys/);
   });

@@ -111,7 +111,7 @@ async function turn(pid: string, a: Action, jobId: string) {
   if (a.type === 'talkbrief') return cutTalk(pid, a.brief || {}, jobId);
   const text = a.text || '';
   const atts = a.type === 'message' ? a.attachments || [] : [];
-  const found = [...atts, ...detectSources(text)];
+  const found = dedupeSources([...atts, ...detectSources(text)]);
   const p = await getProject(pid);
   if (found.length) return intake(pid, found, text, jobId);
   if (!p.sources.length) {
@@ -121,6 +121,15 @@ async function turn(pid: string, a: Action, jobId: string) {
     return;
   }
   return interpret(pid, text, jobId);
+}
+
+/** The same site or path once: the composer attaches a pasted link and the text still contains it. */
+const sourceKey = (it: Attachment) => it.kind === 'url'
+  ? 'url:' + it.ref.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[#?].*$/, '').replace(/\/+$/, '')
+  : `${it.kind}:${it.ref.trim()}`;
+export function dedupeSources(items: Attachment[]) {
+  const seen = new Set<string>();
+  return items.filter((it) => { if (it.kind === 'upload' || it.kind === 'text') return true; const k = sourceKey(it); if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
 // ───────────── 1. intake → analyse → questions ─────────────
@@ -133,6 +142,9 @@ async function intake(pid: string, items: Attachment[], text: string, jobId: str
       if (src && src.status === 'pending' && !src.meta?.mediaFile) { await pr.step(`Reading ${it.label}`); await ingestStoredUpload(pid, it.ref); }
       continue;
     }
+    // a site already read for this video isn't crawled again (Nick says so instead)
+    const already = (it.kind === 'url' || it.kind === 'path') && before.sources.find((x) => x.status === 'ready' && x.kind === it.kind && sourceKey({ kind: it.kind, label: '', ref: x.ref } as Attachment) === sourceKey(it));
+    if (already) { await pr.step(`Already read ${it.label}`); continue; }
     const s = await addSource(pid, it.kind as any, it.ref, it.kind === 'text' ? it.label : undefined);
     try {
       if (it.kind === 'url') { await pr.step(`Visiting ${it.label}`); let u = it.ref.trim(); if (!/^https?:\/\//i.test(u)) u = 'https://' + u; await ingestUrl(pid, s.id, u, sublog(pr)); }

@@ -5,6 +5,8 @@
 //     truncated answer by asking again with more room
 //   · is recorded in the usage ledger (tokens, cost estimate, success or failure)
 //   · turns provider errors into messages people can act on
+//   · asks for the answer through a tool; models that can't be forced to call it (tool_choice "tool")
+//     are asked to call it, which is remembered per model
 import Anthropic from '@anthropic-ai/sdk';
 import { config, currentContext } from '@truecut/config';
 import { recordUsage, markKey, monthSpend, getWorkspaceSettings } from '@truecut/db';
@@ -52,6 +54,18 @@ export function explainClaudeError(e: any): UserFacingError {
   return new UserFacingError(`Claude request failed: ${msg.slice(0, 200)}`, 'unknown');
 }
 
+// Models that answered "tool_choice type tool/any is not supported": ask them nicely instead.
+const autoOnly: Set<string> = g.__tcAutoTool || (g.__tcAutoTool = new Set());
+const forcedUnsupported = (e: any) => e?.status === 400 && /tool_choice/i.test(String(e?.error?.error?.message || e?.message || ''));
+
+/** A JSON object in a text answer, for a model that wrote the result instead of calling the tool. */
+function jsonFromText(msg: any) {
+  const t = (msg.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n');
+  const m = t.match(/```(?:json)?\s*([\s\S]*?)```/) || t.match(/(\{[\s\S]*\})/);
+  if (!m) return null;
+  try { const v = JSON.parse(m[1]); return v && typeof v === 'object' && !Array.isArray(v) ? v : null; } catch { return null; }
+}
+
 export async function callTool<T>(opts: CallToolOpts): Promise<T> {
   const ctx = currentContext();
   const key = config.anthropicKey;
@@ -59,12 +73,15 @@ export async function callTool<T>(opts: CallToolOpts): Promise<T> {
   await assertBudget(ctx?.workspaceId, config.anthropicKeySource);
   const operation = opts.operation || opts.tool.name.replace(/^record_/, '');
   let maxTokens = opts.maxTokens || 12000;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  let grewOnce = false; let nudged = false;
+  for (let attempt = 0; attempt < 4; attempt++) {
     const t0 = Date.now();
+    const auto = autoOnly.has(opts.model);
     try {
       const msg = await client(key).messages.create({
-        model: opts.model, max_tokens: maxTokens, system: opts.system,
-        tools: [opts.tool as any], tool_choice: { type: 'tool', name: opts.tool.name } as any,
+        model: opts.model, max_tokens: maxTokens,
+        system: auto ? `${opts.system}\n\nGive your answer only by calling the \`${opts.tool.name}\` tool, once, with the complete result. Do not answer in plain text.` : opts.system,
+        tools: [opts.tool as any], tool_choice: (auto ? { type: 'auto' } : { type: 'tool', name: opts.tool.name }) as any,
         messages: [{ role: 'user', content: opts.content }],
       });
       const u: any = msg.usage || {};
@@ -75,12 +92,17 @@ export async function callTool<T>(opts: CallToolOpts): Promise<T> {
         costUsd: costOf(opts.model, usage), keySource: config.anthropicKeySource, ok: !truncated, error: truncated ? 'truncated (max_tokens)' : null, durationMs: Date.now() - t0 });
       if (ctx?.workspaceId && config.anthropicKeySource !== 'personal') { const b = budgetCache.get(ctx.workspaceId); if (b) b.spent += costOf(opts.model, usage); }
       if (ctx?.keyIds?.anthropic && attempt === 0) void markKey(ctx.keyIds.anthropic, 'ok').catch(() => {});
-      const tu: any = msg.content.find((b: any) => b.type === 'tool_use');
-      if (truncated && attempt === 0) { maxTokens = Math.min(Math.round(maxTokens * 1.8), 64_000); continue; } // ran out of room: once more, with more
-      if (!tu) throw new UserFacingError('Claude did not return a structured answer. Please try again.', 'no_tool_output', true);
-      return tu.input as T;
+      const tu: any = msg.content.find((b: any) => b.type === 'tool_use' && b.name === opts.tool.name);
+      if (truncated && !grewOnce) { grewOnce = true; maxTokens = Math.min(Math.round(maxTokens * 1.8), 64_000); continue; } // ran out of room: once more, with more
+      if (tu) return tu.input as T;
+      const fromText = !truncated && auto ? jsonFromText(msg) : null;
+      if (fromText) return fromText as T;
+      if (auto && !nudged && !truncated) { nudged = true; continue; } // it chatted instead of answering: ask once more
+      if (truncated) break;
+      throw new UserFacingError('Claude did not return a structured answer. Please try again.', 'no_tool_output', true);
     } catch (e: any) {
       if (e instanceof UserFacingError) throw e;
+      if (forcedUnsupported(e) && !autoOnly.has(opts.model)) { autoOnly.add(opts.model); continue; } // this model can't be forced to use the tool
       const err = explainClaudeError(e);
       void recordUsage({ workspaceId: ctx?.workspaceId, userId: ctx?.userId, projectId: ctx?.projectId, jobId: ctx?.jobId, provider: 'anthropic', model: opts.model, operation, keySource: config.anthropicKeySource, ok: false, error: `${e?.status || ''} ${err.code}`.trim(), durationMs: Date.now() - t0 });
       if (err.code === 'invalid_key' && ctx?.keyIds?.anthropic) await markKey(ctx.keyIds.anthropic, 'invalid', 'Rejected by Anthropic (401)').catch(() => {});

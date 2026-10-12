@@ -24,8 +24,8 @@ function client(key: string) {
 
 // budget checks are cached briefly so a burst of calls doesn't hammer the database
 const budgetCache = new Map<string, { at: number; spent: number; budget: number | null }>();
-export async function assertBudget(workspaceId?: string | null) {
-  if (!workspaceId) return;
+export async function assertBudget(workspaceId?: string | null, keySource?: string) {
+  if (!workspaceId || keySource === 'personal') return;
   const fresh = async () => { const [spent, s] = await Promise.all([monthSpend(workspaceId), getWorkspaceSettings(workspaceId)]); const v = { at: Date.now(), spent, budget: s.monthlyBudgetUsd }; budgetCache.set(workspaceId, v); return v; };
   let b = budgetCache.get(workspaceId);
   if (!b || Date.now() - b.at > 15_000) b = await fresh();
@@ -56,7 +56,7 @@ export async function callTool<T>(opts: CallToolOpts): Promise<T> {
   const ctx = currentContext();
   const key = config.anthropicKey;
   if (!key) throw new MissingKey('anthropic', opts.what || 'Writing with AI');
-  await assertBudget(ctx?.workspaceId);
+  await assertBudget(ctx?.workspaceId, config.anthropicKeySource);
   const operation = opts.operation || opts.tool.name.replace(/^record_/, '');
   let maxTokens = opts.maxTokens || 12000;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -73,7 +73,7 @@ export async function callTool<T>(opts: CallToolOpts): Promise<T> {
       void recordUsage({ workspaceId: ctx?.workspaceId, userId: ctx?.userId, projectId: ctx?.projectId, jobId: ctx?.jobId, provider: 'anthropic', model: opts.model, operation,
         inputTokens: usage.input, outputTokens: usage.output, cacheWriteTokens: usage.cacheWrite, cacheReadTokens: usage.cacheRead,
         costUsd: costOf(opts.model, usage), keySource: config.anthropicKeySource, ok: !truncated, error: truncated ? 'truncated (max_tokens)' : null, durationMs: Date.now() - t0 });
-      if (ctx?.workspaceId) { const b = budgetCache.get(ctx.workspaceId); if (b) b.spent += costOf(opts.model, usage); }
+      if (ctx?.workspaceId && config.anthropicKeySource !== 'personal') { const b = budgetCache.get(ctx.workspaceId); if (b) b.spent += costOf(opts.model, usage); }
       if (ctx?.keyIds?.anthropic && attempt === 0) void markKey(ctx.keyIds.anthropic, 'ok').catch(() => {});
       const tu: any = msg.content.find((b: any) => b.type === 'tool_use');
       if (truncated && attempt === 0) { maxTokens = Math.min(Math.round(maxTokens * 1.8), 64_000); continue; } // ran out of room: once more, with more

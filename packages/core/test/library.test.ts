@@ -81,7 +81,7 @@ describe.skipIf(!dbReady)('library pipeline', () => {
   it('still stores a capture without a key, marked as not read', async () => {
     delete process.env.ANTHROPIC_API_KEY;
     const { asset } = await addCapture({ workspaceId: DEFAULT_WORKSPACE_ID, userId: null, data: await png('yellow'), meta: {} });
-    await until(async () => (await getLibraryAsset(asset.id))?.status === 'ready');
+    await until(async () => (await getLibraryAsset(asset.id))?.status === 'unread');
     expect((await getLibraryAsset(asset.id))!.error).toMatch(/Anthropic API key/);
     process.env.ANTHROPIC_API_KEY = 'sk-ant-test-server-key';
   });

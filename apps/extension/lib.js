@@ -28,12 +28,15 @@ export async function apiFetch(path, init = {}) {
 }
 
 // ── pending captures live in IndexedDB (shared by the service worker and the extension pages) ──
+let dbp = null;
 function db() {
-  return new Promise((res, rej) => {
+  if (dbp) return dbp;
+  return (dbp = new Promise((res, rej) => {
     const o = indexedDB.open('truecut', 1);
     o.onupgradeneeded = () => o.result.createObjectStore('captures', { keyPath: 'id' });
-    o.onsuccess = () => res(o.result); o.onerror = () => rej(o.error);
-  });
+    o.onsuccess = () => { o.result.onversionchange = () => { o.result.close(); dbp = null; }; res(o.result); };
+    o.onerror = () => { dbp = null; rej(o.error); };
+  }));
 }
 async function tx(mode, fn) { const d = await db(); return new Promise((res, rej) => { const t = d.transaction('captures', mode); const s = t.objectStore('captures'); const r = fn(s); t.oncomplete = () => res(r?.result); t.onerror = () => rej(t.error); }); }
 export const putCapture = (c) => tx('readwrite', (s) => s.put(c));

@@ -72,6 +72,8 @@ async function fullPage(tab) {
       const y = await run(tab.id, pageOps, ['scroll', i * m.vh]);
       await sleep(350);
       if (i === 1) await run(tab.id, pageOps, ['hideFixed']);
+      const now = await chrome.tabs.get(tab.id).catch(() => null);
+      if (!now?.active) throw new Error('Full-page capture stopped: stay on the page until it finishes.');
       const b = await shoot(tab.windowId); const bmp = await createImageBitmap(b);
       if (!first) first = bmp;
       shots.push({ bmp, y });

@@ -93,5 +93,7 @@ export async function userFromBearer(req: Request) {
   const h = req.headers.get('authorization') || '';
   const m = h.match(/^Bearer\s+(tc_[A-Za-z0-9_-]{20,})$/);
   if (!m) return null;
-  return userForToken(m[1]);
+  const u = await userForToken(m[1]);
+  // someone whose address is no longer allowed loses token access too
+  return u && (!authEnabled() || emailAllowed(u.email)) ? u : null;
 }

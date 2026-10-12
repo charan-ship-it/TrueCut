@@ -13,12 +13,18 @@ async function show() {
   const box = $('pending'); box.hidden = !pending.length; box.innerHTML = '';
   if (pending.length) {
     const row = document.createElement('div'); row.className = 'row';
-    row.innerHTML = `<span class="grow xs muted">${pending.length} capture${pending.length > 1 ? 's' : ''} not saved yet</span>`;
+    const label = document.createElement('span'); label.className = 'grow xs muted'; label.textContent = `${pending.length} capture${pending.length > 1 ? 's' : ''} not saved yet`; row.append(label);
     const open = document.createElement('button'); open.className = 'btn xs'; open.textContent = 'Review';
     open.onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL(`editor.html?id=${pending[0].id}`) });
-    const retry = document.createElement('button'); retry.className = 'btn xs'; retry.textContent = 'Upload all';
-    retry.onclick = async () => { let ok = 0; for (const c of pending) { try { await uploadCapture(c); ok++; } catch (e) { say(e.message, 'bad'); break; } } chrome.runtime.sendMessage({ type: 'badge' }); if (ok) say(`Saved ${ok} to the Library.`, 'good'); show(); };
-    row.append(open, retry); box.append(row);
+    row.append(open);
+    // only captures someone already reviewed (and blurred) in the editor are retried from here
+    const reviewed = pending.filter((c) => c.reviewed);
+    if (reviewed.length) {
+      const retry = document.createElement('button'); retry.className = 'btn xs'; retry.textContent = `Retry ${reviewed.length}`;
+      retry.onclick = async () => { let ok = 0; for (const c of reviewed) { try { await uploadCapture(c); ok++; } catch (e) { say(e.message, 'bad'); break; } } chrome.runtime.sendMessage({ type: 'badge' }); if (ok) say(`Saved ${ok} to the Library.`, 'good'); show(); };
+      row.append(retry);
+    }
+    box.append(row);
   }
 }
 

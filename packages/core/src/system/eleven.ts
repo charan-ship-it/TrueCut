@@ -25,7 +25,7 @@ export async function elevenFetch(path: string, init: RequestInit & { operation:
   const key = config.elevenKey;
   if (!key) throw new MissingKey('elevenlabs', init.what);
   const ctx = currentContext();
-  if (init.units) await assertBudget(ctx?.workspaceId);
+  if (init.units) await assertBudget(ctx?.workspaceId, config.elevenKeySource);
   const headers = { ...(init.headers as any), 'xi-api-key': key };
   let last: UserFacingError | null = null;
   for (let attempt = 0; attempt < 4; attempt++) {

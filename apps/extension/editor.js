@@ -1,7 +1,11 @@
 import { getCapture, putCapture, deleteCapture, uploadCapture, getConn, MAX_BYTES } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
-const say = (html, kind = '') => { const m = $('msg'); m.hidden = !html; m.innerHTML = html || ''; m.className = `msg ${kind}`; };
+// text only (server messages are never rendered as HTML); an optional link is built as a node
+const say = (text, kind = '', link) => {
+  const m = $('msg'); m.hidden = !text; m.textContent = text || ''; m.className = `msg ${kind}`;
+  if (link) { m.append(' '); const a = document.createElement('a'); a.href = link.href; a.target = '_blank'; a.textContent = link.text; m.append(a); }
+};
 const id = new URLSearchParams(location.search).get('id');
 let cap, img, blurs = [], drag = null;
 const view = $('view'), ctx = view.getContext('2d');
@@ -34,9 +38,16 @@ window.addEventListener('mouseup', (e) => {
 $('undo').onclick = () => { blurs.pop(); render(); };
 window.addEventListener('resize', () => img && render());
 
+/** The image to upload: PNG, or JPEG, or a scaled-down JPEG, whichever first fits under the limit. */
 async function flattened() {
   let blob = await new Promise((res) => full.toBlob(res, 'image/png'));
-  if (blob.size > MAX_BYTES) blob = await new Promise((res) => full.toBlob(res, 'image/jpeg', 0.88));
+  if (blob.size <= MAX_BYTES) return blob;
+  blob = await new Promise((res) => full.toBlob(res, 'image/jpeg', 0.88));
+  for (let scale = 0.8; blob.size > MAX_BYTES && scale > 0.2; scale -= 0.15) {
+    const c = document.createElement('canvas'); c.width = Math.round(full.width * scale); c.height = Math.round(full.height * scale);
+    c.getContext('2d').drawImage(full, 0, 0, c.width, c.height);
+    blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
+  }
   return blob;
 }
 const fields = () => ({ title: $('title').value.trim() || cap.title, product: $('product').value.trim(), tags: $('tags').value.split(',').map((t) => t.trim()).filter(Boolean), includeUrl: $('incurl').checked });
@@ -44,12 +55,12 @@ const fields = () => ({ title: $('title').value.trim() || cap.title, product: $(
 $('save').onclick = async () => {
   $('save').disabled = true; say('Saving…');
   try {
-    const blob = blurs.length ? await flattened() : cap.blob;
-    cap = { ...cap, ...fields(), blob, blurred: blurs.length };
+    const blob = blurs.length || cap.blob.size > MAX_BYTES ? await flattened() : cap.blob;
+    cap = { ...cap, ...fields(), blob, blurred: blurs.length, reviewed: true };
     await putCapture(cap); // kept until the upload succeeds
     const item = await uploadCapture(cap);
     const conn = await getConn();
-    say(`${item.duplicate ? 'Already in the Library' : 'Saved to the Library'}. <a href="${conn.server}/library" target="_blank">Open it</a>. Nick is reading it now.`, 'good');
+    say(`${item.duplicate ? 'Already in the Library.' : 'Saved to the Library. Nick is reading it now.'}`, 'good', { href: `${conn.server}/library`, text: 'Open the Library' });
     chrome.runtime.sendMessage({ type: 'badge' });
     $('discard').textContent = 'Close';
   } catch (e) {

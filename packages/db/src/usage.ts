@@ -1,6 +1,6 @@
 // Usage ledger: every paid API call, so the team can see tokens and spend per person, project and
 // model, and so a monthly budget can stop runaway jobs.
-import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, ne, sql } from 'drizzle-orm';
 import { db } from './client';
 import { usageEvents, users, projects } from './schema';
 import { newId } from './ids';
@@ -28,10 +28,10 @@ export async function recordUsage(u: UsageInput) {
 
 export const monthStart = (d = new Date()) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 
-/** Spend so far this calendar month (UTC), in USD. */
+/** Spend so far this calendar month (UTC), in USD, on workspace and server keys (people's own keys aren't capped). */
 export async function monthSpend(workspaceId: string, now = new Date()): Promise<number> {
   const [r] = await db().select({ s: sql<string>`coalesce(sum(${usageEvents.costUsd}), 0)` }).from(usageEvents)
-    .where(and(eq(usageEvents.workspaceId, workspaceId), gte(usageEvents.createdAt, monthStart(now))));
+    .where(and(eq(usageEvents.workspaceId, workspaceId), gte(usageEvents.createdAt, monthStart(now)), ne(usageEvents.keySource, 'personal')));
   return Number(r?.s || 0);
 }
 
@@ -51,7 +51,8 @@ const sums = {
   calls: sql<string>`count(*)`,
   failed: sql<string>`count(*) filter (where not ${usageEvents.ok})`,
 };
-const num = (r: any) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, typeof v === 'string' && /^-?[\d.]+$/.test(v) ? Number(v) : v]));
+const NUMERIC = new Set(['cost', 'input', 'output', 'cacheWrite', 'cacheRead', 'units', 'calls', 'failed']);
+const num = (r: any) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, NUMERIC.has(k) ? Number(v || 0) : v]));
 
 /** The Usage page: one month (UTC), broken down every way the team asked for. */
 export async function usageSummary(workspaceId: string, month = monthStart()) {

@@ -7,7 +7,7 @@ import path from 'node:path';
 import { imageSize } from 'image-size';
 import { config } from '@truecut/config';
 import { createLibraryAsset, findBySha, getLibraryAsset, updateLibraryAsset, newLibraryId, getProject, updateProject, newId, findLibraryMatches, type LibraryAnalysis, type LibraryAsset } from '@truecut/db';
-import { putLibraryFile, readLibraryFile, copyLibraryFileToProject, projectPath, writeAtomic } from '@truecut/storage';
+import { putLibraryFile, readLibraryFile, deleteLibraryFiles, projectPath, writeAtomic, ensureProjectDirs, flush as flushFiles } from '@truecut/storage';
 import { defineHandler, enqueue } from '@truecut/queue';
 import { ffmpeg } from '../render/media';
 import { callTool } from '../system/claude';
@@ -45,7 +45,7 @@ export async function addCapture(o: { workspaceId: string; userId: string | null
   const t = TYPES[dim.type === 'jpeg' ? 'jpg' : dim.type || ''];
   if (!t) throw new UserFacingError(`TrueCut can't use ${dim.type || 'that'} images. Use PNG, JPEG or WebP.`, 'bad_image');
   if (!dim.width || !dim.height || dim.width < 16 || dim.height < 16) throw new UserFacingError('That image is too small to use.', 'bad_image');
-  if (dim.width > 20000 || dim.height > 40000) throw new UserFacingError('That image is too large in pixels (max 20,000 × 40,000).', 'bad_image');
+  if (dim.width > 20000 || dim.height > 40000 || dim.width * dim.height > 60_000_000) throw new UserFacingError('That image is too large in pixels (max 60 megapixels). Capture a smaller area.', 'bad_image');
   const sha = crypto.createHash('sha256').update(o.data).digest('hex');
   const dup = await findBySha(o.workspaceId, sha);
   if (dup) return { asset: dup, duplicate: true };
@@ -63,7 +63,7 @@ export async function addCapture(o: { workspaceId: string; userId: string | null
     });
   } catch (e: any) {
     // two identical uploads raced: the unique index let one through
-    if (/library_ws_sha_idx|duplicate key/i.test(e?.message || '')) { const d = await findBySha(o.workspaceId, sha); if (d) return { asset: d, duplicate: true }; }
+    if (/library_ws_sha_idx|duplicate key/i.test(e?.message || '')) { await deleteLibraryFiles(o.workspaceId, [file]).catch(() => {}); const d = await findBySha(o.workspaceId, sha); if (d) return { asset: d, duplicate: true }; }
     throw e;
   }
   await enqueue('library_read', null, { assetId: id, workspaceId: o.workspaceId }, { createdBy: o.userId });
@@ -112,7 +112,7 @@ async function visionBlocks(src: string, w: number, h: number) {
 
 export function normalizeAnalysis(out: any): LibraryAnalysis {
   const nums = Array.isArray(out?.numbers) ? out.numbers : [];
-  const text = clip(out?.text, 6000);
+  const text = typeof out?.text === 'string' ? out.text.replace(/[\u0000-\u0008\u000b-\u001f]/g, ' ').trim().slice(0, 6000) : ''; // keep line breaks
   const flat = (x: string) => x.replace(/\s+/g, ' ').trim().toLowerCase();
   const hay = flat(text);
   return {
@@ -135,9 +135,11 @@ defineHandler<{ assetId: string; workspaceId: string }>('library_read', async ({
     log('Making a thumbnail', 20);
     const thumbName = `${a.id}_t.jpg`; const thumb = path.join(tmp, thumbName);
     await ffmpeg(['-i', src, '-vf', `scale='min(640,iw)':-2,crop=iw:'min(ih,iw*1.6)':0:0`, '-q:v', '4', '-frames:v', '1', thumb]);
+    if (!(await getLibraryAsset(a.id, workspaceId))) return { skipped: 'deleted' };
     await putLibraryFile(workspaceId, thumbName, fs.readFileSync(thumb));
     if (!config.anthropicKey) {
-      await updateLibraryAsset(a.id, { status: 'ready', error: 'Not read yet: add an Anthropic API key in Settings, then choose "Read again".', analysis: null });
+      // not "ready": an unread shot hasn't been checked for personal data, so Nick won't use it
+      await updateLibraryAsset(a.id, { status: 'unread', error: 'Not read yet: add an Anthropic API key in Settings, then choose "Read again".', analysis: null });
       return { read: false };
     }
     log('Reading the screenshot', 50);
@@ -148,11 +150,12 @@ defineHandler<{ assetId: string; workspaceId: string }>('library_read', async ({
       content: [{ type: 'text', text: `Screenshot titled "${a.title}"${a.url ? ` from ${a.url}` : ''}.` }, ...(await visionBlocks(src, a.w, a.h)), { type: 'text', text: 'Call record_screenshot.' }],
     });
     const analysis = normalizeAnalysis(out);
+    if (!(await getLibraryAsset(a.id, workspaceId))) return { skipped: 'deleted' };
     await updateLibraryAsset(a.id, { status: 'ready', error: null, analysis, product: a.product || analysis.product || null });
     log(analysis.sensitive.has ? 'Read. Contains personal data: flagged' : 'Read', 100);
     return { read: true, sensitive: analysis.sensitive.has };
   } catch (e: any) {
-    await updateLibraryAsset(a.id, { status: 'ready', error: `Couldn't read it: ${e?.message || e}`.slice(0, 300) });
+    await updateLibraryAsset(a.id, { status: 'error', error: `Couldn't read it: ${e?.message || e}`.slice(0, 300) });
     throw e;
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
@@ -166,28 +169,39 @@ export function assetSourceText(a: LibraryAsset) {
     an?.summary || '', an?.text ? `Visible text:\n${an.text}` : ''].filter(Boolean).join('\n\n');
 }
 
-/** Copy library shots into a project as visuals + one source each. Skips ones already in it. */
+/** Copy library shots into a project as visuals + one source each. Skips ones already in it.
+ *  Files are written to the project's working folder and flushed, so this works from the web app
+ *  (bucket storage) and inside a job alike. A shot that hasn't been checked for personal data, or
+ *  that has some, comes in switched off. */
 export async function attachToProject(pid: string, assetIds: string[], workspaceId: string) {
   const p = await getProject(pid);
   const have = new Set(p.sources.filter((s) => s.kind === 'library').map((s) => s.ref));
   const added: { sourceId: string; visualId: string; assetId: string }[] = [];
+  ensureProjectDirs(pid);
   for (const id of [...new Set(assetIds)].slice(0, 30)) {
     if (have.has(id)) continue;
     const a = await getLibraryAsset(id, workspaceId);
     if (!a) continue;
+    const data = await readLibraryFile(workspaceId, a.file);
+    if (!data) continue;
     const ext = path.extname(a.file) || '.png';
     const visualId = 'v' + newId().slice(0, 7); const sourceId = 's' + newId().slice(0, 7);
     const rel = `assets/lib_${a.id}${ext}`; const textFile = `sources/${sourceId}.txt`;
-    await copyLibraryFileToProject(workspaceId, a.file, pid, rel);
+    writeAtomic(projectPath(pid, rel), data);
     const text = assetSourceText(a);
     writeAtomic(projectPath(pid, textFile), text);
     const an = a.analysis as LibraryAnalysis | null;
+    const safe = !!an && !an.sensitive?.has;
+    let done = false;
     await updateProject(pid, (pp) => {
-      pp.sources.push({ id: sourceId, kind: 'library', ref: a.id, label: a.title, addedAt: new Date().toISOString(), status: 'ready', textFile, chars: text.length, meta: { url: a.url, product: a.product, sensitive: !!an?.sensitive?.has } } as any);
-      pp.visuals.push({ id: visualId, file: rel, w: a.w, h: a.h, origin: `Library · ${a.title}`, sourceId, kind: 'screenshot', use: !an?.sensitive?.has, description: an?.summary || a.title } as any);
+      if (pp.sources.some((s) => s.kind === 'library' && s.ref === a.id)) return; // attached meanwhile
+      pp.sources.push({ id: sourceId, kind: 'library', ref: a.id, label: a.title, addedAt: new Date().toISOString(), status: 'ready', textFile, chars: text.length, meta: { url: a.url, product: a.product, sensitive: !!an?.sensitive?.has, unread: !an } } as any);
+      pp.visuals.push({ id: visualId, file: rel, w: a.w, h: a.h, origin: `Library · ${a.title}`, sourceId, kind: 'screenshot', use: safe, description: an?.summary || a.title } as any);
+      done = true;
     });
-    added.push({ sourceId, visualId, assetId: a.id });
+    if (done) added.push({ sourceId, visualId, assetId: a.id });
   }
+  if (added.length) await flushFiles(pid, { settleMs: 0 }).catch((e) => console.error('[library] flush', e?.message));
   return added;
 }
 

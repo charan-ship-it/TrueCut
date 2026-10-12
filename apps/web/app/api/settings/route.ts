@@ -18,8 +18,9 @@ async function view(u: { id: string; workspaceId: string }) {
 
 export const GET = route(async (_r: Request, _c: any, u) => ok(await view(u)));
 
+const ModelId = z.enum(MODELS.map((m) => m.id) as [string, ...string[]]);
 const Patch = z.object({
-  models: z.object({ analysis: z.string(), creative: z.string(), vision: z.string() }).partial().optional(),
+  models: z.object({ analysis: ModelId, creative: ModelId, vision: ModelId }).partial().optional(),
   monthlyBudgetUsd: z.number().nonnegative().max(1_000_000).nullable().optional(),
 }).strict();
 

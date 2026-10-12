@@ -3,7 +3,7 @@
 import crypto from 'node:crypto';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { db } from './client';
-import { apiTokens, users } from './schema';
+import { apiTokens, users, memberships } from './schema';
 import { newId } from './ids';
 import { sha256 } from './secrets';
 
@@ -30,6 +30,9 @@ export async function userForToken(raw: string) {
   if (!raw.startsWith(TOKEN_PREFIX) || raw.length < 20) return null;
   const [r] = await db().select({ t: apiTokens, u: users }).from(apiTokens).innerJoin(users, eq(users.id, apiTokens.userId)).where(eq(apiTokens.tokenHash, sha256(raw))).limit(1);
   if (!r || r.t.revokedAt || (r.t.expiresAt && r.t.expiresAt < new Date())) return null;
+  // a token never outlives the person's membership of the workspace
+  const [m] = await db().select({ u: memberships.userId }).from(memberships).where(and(eq(memberships.workspaceId, r.t.workspaceId), eq(memberships.userId, r.u.id))).limit(1);
+  if (!m) return null;
   if (!r.t.lastUsedAt || Date.now() - r.t.lastUsedAt.getTime() > 60_000) await db().update(apiTokens).set({ lastUsedAt: new Date() }).where(eq(apiTokens.id, r.t.id));
   return { id: r.u.id, email: r.u.email, name: r.u.name, image: r.u.image, workspaceId: r.t.workspaceId, scopes: r.t.scopes as string[], tokenId: r.t.id };
 }

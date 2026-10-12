@@ -51,7 +51,8 @@ describe.skipIf(!dbReady)('postgres store', () => {
     const again = await upsertUser({ email: 'first@example.com', name: 'First Renamed' });
     expect(again.id).toBe(a.id);
     const members = await workspaceMembers(DEFAULT_WORKSPACE_ID);
-    expect(members.find((m) => m.id === a.id)?.role).toBe('owner');
+    expect(members.filter((m) => m.role === 'owner')).toHaveLength(1); // whoever signed in first
     expect(members.find((m) => m.id === b.id)?.role).toBe('member');
+    expect(members.filter((m) => m.id === a.id)).toHaveLength(1);
   });
 });

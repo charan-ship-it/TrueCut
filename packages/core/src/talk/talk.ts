@@ -2,6 +2,8 @@
 // → Claude edits it (keeps the strongest moments, splits into beats, designs an illustration per beat)
 // → cut + crop the speaker with ffmpeg → score a quiet bed under the voice → composite the animated
 // panel (rendered with alpha by the same engine as the preview) over the cut.
+import { elevenFetch } from '../system/eleven';
+import { MissingKey } from '../system/errors';
 import { withRenderSlot } from '../render/slots';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -11,7 +13,7 @@ import { spawn } from 'node:child_process';
 import { config } from '@truecut/config';
 import { getProject, newId, updateProject } from '@truecut/db';
 import { projectPath, writeAtomic } from '@truecut/storage';
-import { ffmpeg, ffmpegPath, run, decodeAudio } from '../render/media';
+import { ffmpeg, ffmpegPath, run, decodeAudio, probeDuration } from '../render/media';
 import { callTool } from '../ads/ai';
 import { numbersIn, allowedNumbers } from '@truecut/shared/facts';
 import { score, wav, SR } from '../audio/synth';
@@ -74,14 +76,14 @@ export async function ingestMedia(pid: string, sid: string, srcFile: string, nam
 }
 
 async function transcribe(pid: string, file: string, mid: string): Promise<W[]> {
-  if (!config.elevenKey) throw new Error('Transcribing needs ELEVENLABS_API_KEY (ElevenLabs Scribe). Add it to .env.local, or attach a .vtt/.srt transcript instead.');
+  if (!config.elevenKey) throw new MissingKey('elevenlabs', 'Transcribing a recording (ElevenLabs Scribe)');
   const mp3 = projectPath(pid, `talk/${mid}.mp3`);
   await ffmpeg(['-i', file, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', '48k', mp3]);
   const fd = new FormData();
   fd.append('model_id', 'scribe_v1'); fd.append('timestamps_granularity', 'word'); fd.append('diarize', 'true'); fd.append('tag_audio_events', 'false');
   fd.append('file', new Blob([fs.readFileSync(mp3)], { type: 'audio/mpeg' }), 'audio.mp3');
-  const r = await fetch('https://api.elevenlabs.io/v1/speech-to-text', { method: 'POST', headers: { 'xi-api-key': config.elevenKey }, body: fd });
-  if (!r.ok) throw new Error(`ElevenLabs Scribe HTTP ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  const seconds = await probeDuration(mp3).catch(() => 0);
+  const r = await elevenFetch('/speech-to-text', { method: 'POST', body: fd, operation: 'stt', what: 'Transcribing a recording', units: seconds, unitKind: 'seconds', model: 'scribe_v1' });
   const j: any = await r.json();
   return (j.words || []).filter((w: any) => w.type === 'word' && String(w.text).trim()).map((w: any) => ({ w: String(w.text).trim(), s: +w.start, e: +w.end, sp: w.speaker_id }));
 }
@@ -171,7 +173,7 @@ ${TOOLKIT_SPEC}`;
         content: [{ type: 'text', text: `${planPrompt}\n\nYOUR PREVIOUS EDIT: ${JSON.stringify({ keep: out.keep, beats: (out.beats || []).map((b: any) => ({ from: b.from, to: b.to, headline: b.headline, kind: b.visual?.kind })) })}\nPROBLEMS: ${fix}\nReturn the corrected full edit.` }] });
     }
   } else {
-    log('No ANTHROPIC_API_KEY: using the rule-based editor (keeps the opening, one beat per sentence)');
+    log('No Anthropic API key: using the rule-based editor (keeps the opening, one beat per sentence)');
     out = heuristicPlan(sents, words, target);
   }
   await applyPlan(pid, out, words, media);
@@ -267,7 +269,7 @@ async function detectFace(pid: string, m: Media) {
 // ───────────────────────── revise one beat ─────────────────────────
 export async function reviseBeat(pid: string, index: number, instruction: string) {
   const p = await getProject(pid); const b = p.talk.beats[index]; if (!b) throw new Error('No such beat');
-  if (!config.anthropicKey) throw new Error('Revising needs ANTHROPIC_API_KEY.');
+  if (!config.anthropicKey) throw new MissingKey('anthropic', 'Revising a beat');
   const words = loadWords(pid, p.talk.media[0]);
   const said = words.slice(b.from ?? 0, (b.to ?? 0) + 1).map((w) => w.w).join(' ');
   const out = await callTool<any>({ model: config.creativeModel, maxTokens: 2500, system: `You are the explainer animator. Redesign ONE beat's headline/accent/sub/illustration per the instruction. Numbers only if spoken.\n${TOOLKIT_SPEC}`,

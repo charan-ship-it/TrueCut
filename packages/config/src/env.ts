@@ -4,6 +4,7 @@
 // file can be reused locally without copying the secret. On a host like Railway, set variables directly.
 import fs from 'node:fs';
 import path from 'node:path';
+import { currentContext } from './context';
 
 const ALLOW = ['ANTHROPIC_API_KEY', 'ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_ID'];
 let loaded = false;
@@ -54,12 +55,22 @@ export function env(name: string, fallback = ''): string {
   return process.env[name] || (legacy && process.env[legacy]) || fallback;
 }
 
+/** The default model for every Claude call (see docs/adr/0005). Workspaces can change it in Settings. */
+export const DEFAULT_MODEL = 'claude-opus-5-5';
+
 export const config = {
   get dataDir() { return path.resolve(ROOT, env('TRUECUT_DATA', 'data')); },
-  get model() { return env('TRUECUT_MODEL', 'claude-sonnet-4-6'); },
-  get creativeModel() { return env('TRUECUT_CREATIVE_MODEL', env('TRUECUT_MODEL', 'claude-sonnet-4-6')); },
-  get anthropicKey() { return env('ANTHROPIC_API_KEY'); },
-  get elevenKey() { return env('ELEVENLABS_API_KEY'); },
+  /** Facts, questions, face finding, chat intent. */
+  get model() { return currentContext()?.models?.analysis || env('TRUECUT_MODEL', DEFAULT_MODEL); },
+  /** Angles, storyboards, casting, the founder-talk edit. */
+  get creativeModel() { return currentContext()?.models?.creative || env('TRUECUT_CREATIVE_MODEL', env('TRUECUT_MODEL', DEFAULT_MODEL)); },
+  /** Reading screenshots in the Library. */
+  get visionModel() { return currentContext()?.models?.vision || env('TRUECUT_VISION_MODEL', env('TRUECUT_MODEL', DEFAULT_MODEL)); },
+  /** The key for this job's person/workspace, else the server's own. */
+  get anthropicKey() { const c = currentContext(); return c?.keys ? c.keys.anthropic || '' : env('ANTHROPIC_API_KEY'); },
+  get anthropicKeySource() { const c = currentContext(); return c?.keys ? c.keys.anthropicSource || 'none' : env('ANTHROPIC_API_KEY') ? 'server' : 'none'; },
+  get elevenKey() { const c = currentContext(); return c?.keys ? c.keys.eleven || '' : env('ELEVENLABS_API_KEY'); },
+  get elevenKeySource() { const c = currentContext(); return c?.keys ? c.keys.elevenSource || 'none' : env('ELEVENLABS_API_KEY') ? 'server' : 'none'; },
   get defaultVoice() { return env('ELEVENLABS_VOICE_ID', 'EXAVITQu4vr4xnSDxMaL'); },
   get chromium() { return env('TRUECUT_CHROMIUM') || undefined; },
   get ffmpeg() { return env('TRUECUT_FFMPEG') || undefined; },

@@ -1,5 +1,6 @@
 // The job kinds behind the manual Edit-bay buttons and source adds. Each `start*` queues a job; the
 // matching handler (registered here) is what the worker, or the inline driver, runs.
+import '../system/context';
 import path from 'node:path';
 import { defineHandler, enqueue } from '@truecut/queue';
 import { ingestUrl, ingestPath, ingestText, ingestStoredUpload } from '../sources/ingest';

@@ -6,7 +6,7 @@
 //   pgboss  hand the job to the worker service through Postgres (see ./boss.ts). Default when the
 //           worker is deployed.
 import { createJob, finishJob, markRunning, reportJob, getJob, projectJobs, isBusy, busyProjects, STALE_MS, type Job } from '@truecut/db';
-import { env } from '@truecut/config';
+import { env, runWithContext, type RunContext } from '@truecut/config';
 import { hydrate, flush as flushFiles } from '@truecut/storage';
 
 export { getJob, projectJobs, isBusy, busyProjects, type Job };
@@ -26,6 +26,12 @@ export const handlerKinds = () => [...reg.handlers.keys()];
 export const isHeavy = (kind: string) => !!reg.handlers.get(kind)?.heavy;
 
 export function queueDriver(): 'inline' | 'pgboss' { return env('TRUECUT_QUEUE', 'inline') === 'pgboss' ? 'pgboss' : 'inline'; }
+
+/** Builds the context a job runs in (whose keys, which models). Registered by @truecut/core. */
+type ContextProvider = (job: Job) => Promise<RunContext | undefined>;
+// on globalThis, like the handler registry: one per process even if the module is loaded twice
+export function setContextProvider(p: ContextProvider | null) { g.__truecutContextProvider = p; }
+const contextProvider_ = (): ContextProvider | null => g.__truecutContextProvider || null;
 
 type Sender = (job: Job) => Promise<void>;
 let sender: Sender | null = null;
@@ -78,7 +84,10 @@ export async function runJob(id: string): Promise<void> {
   await markRunning(id);
   try {
     if (pid) { const h = await hydrate(pid); if (h.downloaded) log(`Fetched ${h.downloaded} project file(s)`); }
-    const result = await def.fn(job.payload ?? {}, { job: { ...job, status: 'running' }, log, flush });
+    const provider = contextProvider_();
+    const ctx = provider ? await provider(job) : undefined;
+    const run = () => def.fn(job.payload ?? {}, { job: { ...job, status: 'running' }, log, flush });
+    const result = await (ctx ? runWithContext(ctx, run) : run());
     clearInterval(beat);
     if (pid) await flushFiles(pid);
     if (message === 'Queued') { message = 'Done'; dirty = true; }

@@ -1,4 +1,5 @@
 // Voice-over via ElevenLabs (with character timestamps → exact word timings for captions).
+import { elevenFetch } from '../system/eleven';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { config } from '@truecut/config';
@@ -7,7 +8,6 @@ import { projectPath } from '@truecut/storage';
 import { probeDuration } from '../render/media';
 
 type Log = (msg: string, pct?: number) => void;
-const API = 'https://api.elevenlabs.io/v1';
 const SETTINGS = { stability: 0.42, similarity_boost: 0.8, style: 0.3, use_speaker_boost: true };
 /** Delivery per energy: calm = steady and warm, energetic = more expressive and a touch faster. */
 export const DELIVERY: Record<string, { stability: number; similarity_boost: number; style: number; use_speaker_boost: boolean; speed: number }> = {
@@ -17,15 +17,17 @@ export const DELIVERY: Record<string, { stability: number; similarity_boost: num
 };
 const MODEL = 'eleven_multilingual_v2';
 
-let voiceCache: { at: number; list: any[] } | null = null;
+// voice libraries differ per account, so the cache is per key
+const voiceCache = new Map<string, { at: number; list: any[] }>();
 export async function listVoices(): Promise<{ id: string; name: string; labels: Record<string, string>; preview?: string; description?: string }[]> {
   if (!config.elevenKey) return [];
-  if (voiceCache && Date.now() - voiceCache.at < 30 * 60_000) return voiceCache.list;
-  const r = await fetch(`${API}/voices`, { headers: { 'xi-api-key': config.elevenKey } });
-  if (!r.ok) throw new Error(`ElevenLabs voices: HTTP ${r.status}`);
+  const ck = crypto.createHash('sha256').update(config.elevenKey).digest('hex').slice(0, 16);
+  const hit = voiceCache.get(ck);
+  if (hit && Date.now() - hit.at < 30 * 60_000) return hit.list;
+  const r = await elevenFetch('/voices', { operation: 'voices', what: 'Listing voices' });
   const j: any = await r.json();
   const list = (j.voices || []).map((v: any) => ({ id: v.voice_id, name: v.name, labels: v.labels || {}, preview: v.preview_url, description: v.description || '' }));
-  voiceCache = { at: Date.now(), list }; return list;
+  voiceCache.set(ck, { at: Date.now(), list }); return list;
 }
 
 function wordsFromAlignment(text: string, al: any) {
@@ -44,12 +46,10 @@ export async function synthLine(pid: string, text: string, voiceId: string, opts
   const hash = crypto.createHash('sha1').update([voiceId, MODEL, JSON.stringify(settings), opts.prev || '', opts.next || '', text].join('|')).digest('hex').slice(0, 16);
   const file = `vo/${hash}.mp3`; const meta = projectPath(pid, `vo/${hash}.json`);
   if (fs.existsSync(projectPath(pid, file)) && fs.existsSync(meta)) return { ...JSON.parse(fs.readFileSync(meta, 'utf8')), file, hash };
-  if (!config.elevenKey) throw new Error('ELEVENLABS_API_KEY is not set');
-  const r = await fetch(`${API}/text-to-speech/${voiceId}/with-timestamps?output_format=mp3_44100_128`, {
-    method: 'POST', headers: { 'xi-api-key': config.elevenKey, 'Content-Type': 'application/json' },
+  const r = await elevenFetch(`/text-to-speech/${encodeURIComponent(voiceId)}/with-timestamps?output_format=mp3_44100_128`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, operation: 'tts', what: 'Recording the voice-over', units: text.length, unitKind: 'characters', model: MODEL,
     body: JSON.stringify({ text, model_id: MODEL, voice_settings: settings, ...(opts.prev ? { previous_text: opts.prev } : {}), ...(opts.next ? { next_text: opts.next } : {}) }),
   });
-  if (!r.ok) throw new Error(`ElevenLabs HTTP ${r.status}: ${(await r.text()).slice(0, 300)}`);
   const j: any = await r.json();
   fs.writeFileSync(projectPath(pid, file), Buffer.from(j.audio_base64, 'base64'));
   const duration = await probeDuration(projectPath(pid, file));

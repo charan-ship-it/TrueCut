@@ -1,7 +1,7 @@
 // S3-compatible bucket (Railway Buckets, AWS S3, Cloudflare R2, MinIO). Objects live at
 //   projects/<projectId>/<path inside the project folder>
 // Configure with S3_* variables, or Railway's own bucket variables (BUCKET, ENDPOINT, …) as-is.
-import { S3Client, GetObjectCommand, HeadObjectCommand, DeleteObjectsCommand, ListObjectsV2Command, type ListObjectsV2CommandOutput } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, HeadObjectCommand, DeleteObjectsCommand, ListObjectsV2Command, CopyObjectCommand, type ListObjectsV2CommandOutput } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from '@truecut/config';
@@ -80,4 +80,28 @@ export async function deleteObjects(pid: string, rels: string[]) {
 export async function signedUrl(pid: string, rel: string, opts: { seconds?: number; download?: string; type?: string } = {}) {
   const { s3, cfg } = client();
   return getSignedUrl(s3, new GetObjectCommand({ Bucket: cfg.bucket, Key: keyOf(pid, rel), ResponseContentDisposition: opts.download ? `attachment; filename="${opts.download.replace(/"/g, '')}"` : undefined, ResponseContentType: opts.type }), { expiresIn: opts.seconds || 3600 });
+}
+
+// ───────── raw keys (used by the library; project helpers above add the projects/<id>/ prefix) ─────────
+export async function putKey(key: string, body: Buffer | Readable, contentType?: string) {
+  const { s3, cfg } = client();
+  const r: any = await new Upload({ client: s3, params: { Bucket: cfg.bucket, Key: key, Body: body, ContentType: contentType }, queueSize: 4, partSize: 16 * 1024 * 1024 }).done();
+  return clean(r.ETag);
+}
+export async function getKey(key: string, range?: string) {
+  const { s3, cfg } = client();
+  try { const r = await s3.send(new GetObjectCommand({ Bucket: cfg.bucket, Key: key, Range: range })); return { body: r.Body as Readable, size: r.ContentLength || 0, range: r.ContentRange, type: r.ContentType }; }
+  catch (e: any) { if (e?.$metadata?.httpStatusCode === 404 || e?.name === 'NoSuchKey') return null; throw e; }
+}
+export async function deleteKeys(keys: string[]) {
+  if (!keys.length) return; const { s3, cfg } = client();
+  for (let i = 0; i < keys.length; i += 1000) await s3.send(new DeleteObjectsCommand({ Bucket: cfg.bucket, Delete: { Objects: keys.slice(i, i + 1000).map((Key) => ({ Key })), Quiet: true } }));
+}
+export async function copyKey(from: string, to: string) {
+  const { s3, cfg } = client();
+  await s3.send(new CopyObjectCommand({ Bucket: cfg.bucket, CopySource: `${cfg.bucket}/${from.split('/').map(encodeURIComponent).join('/')}`, Key: to }));
+}
+export async function signedKeyUrl(key: string, opts: { seconds?: number; download?: string; type?: string } = {}) {
+  const { s3, cfg } = client();
+  return getSignedUrl(s3, new GetObjectCommand({ Bucket: cfg.bucket, Key: key, ResponseContentDisposition: opts.download ? `attachment; filename="${opts.download.replace(/["\\\r\n]/g, '_')}"` : undefined, ResponseContentType: opts.type }), { expiresIn: opts.seconds || 3600 });
 }

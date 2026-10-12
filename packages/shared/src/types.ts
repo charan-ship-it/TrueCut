@@ -5,7 +5,7 @@ export type FormatId = z.infer<typeof FormatId>;
 
 export const Source = z.object({
   id: z.string(),
-  kind: z.enum(['url', 'path', 'upload', 'text']),
+  kind: z.enum(['url', 'path', 'upload', 'text', 'library']),
   label: z.string(),
   ref: z.string(),                       // url, absolute path, file name, or "pasted"
   addedAt: z.string(),

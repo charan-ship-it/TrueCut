@@ -2,7 +2,6 @@
 // revise a single scene. Every call uses a forced tool so output is structured JSON.
 // Without an API key, deterministic fallbacks keep the product usable (lower quality, still fact-safe).
 import fs from 'node:fs';
-import Anthropic from '@anthropic-ai/sdk';
 import { config } from '@truecut/config';
 import { getProject, newId, updateProject } from '@truecut/db';
 import { projectPath } from '@truecut/storage';
@@ -49,22 +48,9 @@ Creative rules (non-negotiable):
 8. "status" (optional) is a 2-5 word live status line shown in the HUD after the reveal, e.g. "Scoring 457 ideas".
 `;
 
-function client() {
-  if (!config.anthropicKey) throw new Error('ANTHROPIC_API_KEY is not set');
-  return new Anthropic({ apiKey: config.anthropicKey });
-}
-
-export async function callTool<T>(opts: { model: string; system: string; tool: { name: string; description: string; input_schema: any }; content: any[]; maxTokens?: number }): Promise<T> {
-  const c = client();
-  const msg = await c.messages.create({
-    model: opts.model, max_tokens: opts.maxTokens || 12000, system: opts.system,
-    tools: [opts.tool as any], tool_choice: { type: 'tool', name: opts.tool.name } as any,
-    messages: [{ role: 'user', content: opts.content }],
-  });
-  const tu: any = msg.content.find((b: any) => b.type === 'tool_use');
-  if (!tu) throw new Error('Model did not return structured output');
-  return tu.input as T;
-}
+export { callTool } from '../system/claude';
+import { callTool } from '../system/claude';
+import { MissingKey } from '../system/errors';
 
 async function imageBlocks(p: Project, max = 8) {
   const pick = p.visuals.filter((v) => v.use).slice(0, max);
@@ -123,7 +109,7 @@ export async function analyze(pid: string, log: Log) {
         { type: 'text', text: 'Now call record_analysis. Facts: atomic, quote verbatim. Include metrics shown in screenshots as facts too, with quote = the exact text visible in the screenshot and where = the visual id.' }],
     });
   } else {
-    log('No ANTHROPIC_API_KEY — using the rule-based extractor', 15);
+    log('No Anthropic API key (Settings → API keys): using the rule-based extractor', 15);
     out = heuristicAnalysis(p, text);
   }
   log('Checking every fact against the sources…', 80);
@@ -237,7 +223,7 @@ export async function storyboard(pid: string, log: Log) {
       content: [{ type: 'text', text: storyContext(p) + '\n\nWrite the storyboard now via record_storyboard.' }],
     });
   } else {
-    log('No ANTHROPIC_API_KEY — building a template storyboard from the facts', 20);
+    log('No Anthropic API key (Settings → API keys): building a template storyboard from the facts', 20);
     out = templateStoryboard(p);
   }
   log('Validating scenes…', 85);
@@ -301,7 +287,7 @@ export async function reviseScene(pid: string, sceneId: string, instruction: str
   const p = await getProject(pid);
   const sc = p.scenes.find((s) => s.id === sceneId);
   if (!sc) throw new Error('Scene not found');
-  if (!config.anthropicKey) throw new Error('Revising with AI needs ANTHROPIC_API_KEY.');
+  if (!config.anthropicKey) throw new MissingKey('anthropic', 'Revising a scene');
   const out = await callTool<any>({
     model: config.creativeModel, maxTokens: 4000,
     system: `You are the motion designer on this ad. Revise ONE scene per the instruction. Keep the scene type unless the instruction asks to change it.\n${RULES}\n${SCENE_SPEC}`,

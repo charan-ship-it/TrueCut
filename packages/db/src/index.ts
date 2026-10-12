@@ -4,3 +4,8 @@ export * from './projects';
 export * from './workspaces';
 export * from './jobs';
 export * as schema from './schema';
+export * from './secrets';
+export * from './settings';
+export * from './usage';
+export * from './tokens';
+export * from './library';

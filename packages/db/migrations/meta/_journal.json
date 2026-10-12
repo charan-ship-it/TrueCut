@@ -8,6 +8,13 @@
       "when": 1791461445022,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791824548608,
+      "tag": "0001_v04_settings_usage_library",
+      "breakpoints": true
     }
   ]
 }

@@ -1,3 +1,4 @@
+import { rateLimit } from '@/lib/ratelimit';
 import { ok, route } from '@/lib/http';
 import { createProject, listProjects, updateProject } from '@truecut/db';
 import type { ProjectSummary } from '@truecut/db';
@@ -15,6 +16,7 @@ export const GET = route(async (_r: Request, _c: any, user) => {
 });
 
 export const POST = route(async (req: Request, _c: any, user) => {
+  rateLimit('chat', user.id);
   // Chat-first (x-nm-chat): {action} → create the project and start Nick's first turn.
   // With files the browser creates the project first ({name}), uploads, then posts the action to /chat.
   if (req.headers.get('x-nm-chat')) {

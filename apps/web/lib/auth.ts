@@ -12,7 +12,7 @@ import type { NextAuthOptions } from 'next-auth';
 import { getServerSession } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import { env, loadEnv } from '@truecut/config';
-import { upsertUser, isMember, projectMeta, DEFAULT_WORKSPACE_ID, type SessionUser } from '@truecut/db';
+import { upsertUser, isMember, projectMeta, memberRole, userForToken, DEFAULT_WORKSPACE_ID, type SessionUser } from '@truecut/db';
 
 loadEnv();
 
@@ -77,4 +77,21 @@ export async function requireProject(projectId: string) {
   if (!meta) throw new HttpError(404, 'Project not found');
   if (authEnabled() && !(await isMember(u.id, meta.workspaceId))) throw new HttpError(404, 'Project not found');
   return u;
+}
+
+/** owner | member. With sign-in off (a laptop), the local user runs everything. */
+export async function roleOf(u: { id: string; workspaceId: string }) {
+  if (!authEnabled() || !u.id) return 'owner';
+  return (await memberRole(u.workspaceId, u.id)) || 'member';
+}
+export async function requireOwner(u: { id: string; workspaceId: string }) {
+  if ((await roleOf(u)) !== 'owner') throw new HttpError(403, 'Only a workspace owner can change this.');
+}
+
+/** A Chrome-extension request: `Authorization: Bearer tc_…` (a personal access token from Settings). */
+export async function userFromBearer(req: Request) {
+  const h = req.headers.get('authorization') || '';
+  const m = h.match(/^Bearer\s+(tc_[A-Za-z0-9_-]{20,})$/);
+  if (!m) return null;
+  return userForToken(m[1]);
 }

@@ -1,5 +1,5 @@
 import { ok, projectRoute } from '@/lib/http';
-import { deleteProject, getProject, updateProject } from '@truecut/db';
+import { deleteProject, getProject, updateProject, projectSpend } from '@truecut/db';
 import { removeProject } from '@truecut/storage';
 import { checkScenes } from '@truecut/shared/facts';
 import { projectJobs, isBusy } from '@truecut/queue';
@@ -7,7 +7,11 @@ import { Project } from '@truecut/shared/types';
 export const dynamic = 'force-dynamic';
 type C = { params: { id: string } };
 const EDITABLE = ['name', 'intake', 'facts', 'questions', 'visuals', 'scenes', 'music', 'brief', 'stage', 'style', 'favorite', 'kind', 'angleId', 'talk', 'cast'] as const;
-const view = async (id: string) => { const p = await getProject(id); p.agentBusy = await isBusy(id); return { project: p, issues: checkScenes(p), jobs: (await projectJobs(id)).slice(0, 12) }; };
+const view = async (id: string) => {
+  const [p, busy, jobs, spend] = await Promise.all([getProject(id), isBusy(id), projectJobs(id), projectSpend(id)]);
+  p.agentBusy = busy;
+  return { project: p, issues: checkScenes(p), jobs: jobs.slice(0, 12), spend };
+};
 export const GET = projectRoute(async (_r: Request, { params }: C) => ok(await view(params.id)));
 export const PATCH = projectRoute(async (req: Request, { params }: C) => {
   const b = await req.json();

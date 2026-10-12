@@ -8,7 +8,7 @@ import { DIRECTIONS } from '@truecut/engine/styles.js';
 import { signOut } from 'next-auth/react';
 
 type Row = { id: string; name: string; stage: string; updatedAt: string; scenes: number; renders: number; thumb: string | null; video: string | null; style: string; favorite: boolean; busy: boolean; length: number; last: string; creator?: { name: string; image?: string | null } | null };
-type Me = { user: { id: string; name: string; email: string; image?: string | null }; auth: boolean };
+type Me = { user: { id: string; name: string; email: string; image?: string | null }; auth: boolean; role?: string; keys?: { anthropic?: string; elevenlabs?: string } };
 const Shared = createContext<{ projects: Row[] | null; refresh: () => void; health: any; me: Me | null }>({ projects: null, refresh: () => {}, health: null, me: null });
 export const useShared = () => useContext(Shared);
 
@@ -45,6 +45,8 @@ function App({ children }: { children: React.ReactNode }) {
   const list = useMemo(() => (projects || []).filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase())), [projects, q]);
   const cur = path.startsWith('/p/') ? path.split('/')[2] : '';
   const chk = (id: string) => health?.checks?.find((c: any) => c.id === id);
+  // AI and Voice follow the keys this person's jobs will use (personal, workspace or server)
+  const ready = (id: string) => (id === 'anthropic' ? (me?.keys ? me.keys.anthropic !== 'none' : chk(id)?.ok) : id === 'eleven' ? (me?.keys ? me.keys.elevenlabs !== 'none' : chk(id)?.ok) : chk(id)?.ok);
 
   return (
     <Shared.Provider value={{ projects, refresh, health, me }}>
@@ -62,7 +64,8 @@ function App({ children }: { children: React.ReactNode }) {
             <span className="kbd" style={{ position: 'absolute', right: 8, top: 9 }}>⌘K</span>
           </div>
           <Link href="/" className={`navbtn ${path === '/' ? 'on' : ''}`} title="Studio"><I.home /><span className="hide-c">Studio</span></Link>
-          <Link href="/library" className={`navbtn ${path === '/library' ? 'on' : ''}`} title="Library"><I.film /><span className="hide-c">Library</span></Link>
+          <Link href="/videos" className={`navbtn ${path === '/videos' ? 'on' : ''}`} title="Videos"><I.film /><span className="hide-c">Videos</span></Link>
+          <Link href="/library" className={`navbtn ${path === '/library' ? 'on' : ''}`} title="Screenshot library"><I.image /><span className="hide-c">Library</span></Link>
           <Link href="/directions" className={`navbtn ${path === '/directions' ? 'on' : ''}`} title="Directions"><I.palette /><span className="hide-c">Directions</span></Link>
           <div className="sidehd hide-c"><span className="mono">{me?.auth ? "Team reel" : "Your reel"}</span><span className="tc xs">{projects?.length ?? ''}</span></div>
           <div className="reel hide-c">
@@ -80,13 +83,14 @@ function App({ children }: { children: React.ReactNode }) {
           {collapsed && <div className="grow" />}
           <div className="sidefoot">
             <div className="row hide-c" style={{ padding: '4px 9px 6px', gap: 12 }} title={health?.checks?.map((c: any) => `${c.label}: ${c.ok ? 'ready' : c.hint}`).join('\n')}>
-              {[['anthropic', 'AI'], ['eleven', 'Voice'], ['chromium', 'Render']].map(([id, l]) => <span key={id} className="row xs muted" style={{ gap: 5 }}><span className={`dot ${chk(id)?.ok ? 'on' : chk(id) ? 'warn' : ''}`} />{l}</span>)}
+              {[['anthropic', 'AI'], ['eleven', 'Voice'], ['chromium', 'Render']].map(([id, l]) => <span key={id} className="row xs muted" style={{ gap: 5 }}><span className={`dot ${ready(id) ? 'on' : chk(id) || me ? 'warn' : ''}`} />{l}</span>)}
             </div>
             {me?.auth && <div className="whoami hide-c" title={me.user.email}>
               {me.user.image ? <img src={me.user.image} alt="" referrerPolicy="no-referrer" /> : <span className="av">{(me.user.name || me.user.email)[0]?.toUpperCase()}</span>}
               <span className="grow ell xs">{me.user.name || me.user.email}</span>
               <button className="btn ghost sm" onClick={() => signOut({ callbackUrl: '/signin' })}>Sign out</button>
             </div>}
+            <Link href="/settings" className={`navbtn ${path.startsWith('/settings') ? 'on' : ''}`} title="Settings"><I.gear /><span className="hide-c">Settings</span></Link>
             <button className="navbtn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Toggle theme">{theme === 'dark' ? <I.sun /> : <I.moon />}<span className="hide-c">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span></button>
           </div>
         </aside>

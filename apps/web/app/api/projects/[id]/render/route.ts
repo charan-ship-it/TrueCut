@@ -1,9 +1,11 @@
+import { rateLimit } from '@/lib/ratelimit';
 import { ok, projectRoute, fail } from '@/lib/http';
 import { startRender } from '@truecut/core/director/actions';
 import { getProject } from '@truecut/db';
 import { checkScenes } from '@truecut/shared/facts';
 export const dynamic = 'force-dynamic';
 export const POST = projectRoute(async (req: Request, { params }: { params: { id: string } }, user) => {
+  rateLimit('heavy', user.id);
   const b = await req.json().catch(() => ({}));
   const p = await getProject(params.id);
   const formats = (b.formats?.length ? b.formats : p.intake.formats).filter((f: string) => ['4x5', '9x16', '1x1'].includes(f));

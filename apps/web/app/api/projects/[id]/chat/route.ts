@@ -1,3 +1,4 @@
+import { rateLimit } from '@/lib/ratelimit';
 import { ok, projectRoute, fail } from '@/lib/http';
 import { startTurn, BusyError } from '@truecut/core/director/agent';
 import { readAction, applyOptions } from '@/lib/chatreq';
@@ -7,6 +8,7 @@ export const dynamic = 'force-dynamic';
 type C = { params: { id: string } };
 
 export const POST = projectRoute(async (req: Request, { params }: C, user) => {
+  rateLimit('chat', user.id);
   if (await isBusy(params.id)) return fail('Nick is still working on the last request.', 409);
   const action = await readAction(req);
   if ((action as any).options) await updateProject(params.id, (p) => applyOptions(p, action));

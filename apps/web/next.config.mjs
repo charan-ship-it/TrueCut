@@ -19,6 +19,17 @@ for (const f of ['.env.local', '.env']) {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  poweredByHeader: false,
+  async headers() {
+    const h = [
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+      { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+      { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+      { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+    ];
+    if (process.env.NODE_ENV === 'production' && (process.env.NEXTAUTH_URL || '').startsWith('https://')) h.push({ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' });
+    return [{ source: '/:path*', headers: h }];
+  },
   // workspace packages ship TypeScript source; Next compiles them
   transpilePackages: ['@truecut/shared', '@truecut/config', '@truecut/db', '@truecut/queue', '@truecut/core', '@truecut/engine', '@truecut/storage'],
   experimental: { serverComponentsExternalPackages: ['playwright', 'playwright-core', 'ffmpeg-static', 'image-size', '@anthropic-ai/sdk', 'pg-boss', 'postgres', '@aws-sdk/client-s3', '@aws-sdk/lib-storage', '@aws-sdk/s3-request-presigner'] },

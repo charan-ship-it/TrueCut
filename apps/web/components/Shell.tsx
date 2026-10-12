@@ -14,7 +14,7 @@ export const useShared = () => useContext(Shared);
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
-  if (path === '/signin') return <>{children}</>;
+  if (path === '/signin' || path?.startsWith('/signin/')) return <>{children}</>;
   return <App>{children}</App>;
 }
 

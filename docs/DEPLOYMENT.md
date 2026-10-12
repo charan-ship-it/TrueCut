@@ -11,7 +11,7 @@ Collect these before you open Railway; the rest of this guide is copying them in
 | 1 | **Railway account** on a paid plan (Pro recommended) | railway.com | The worker needs 4+ vCPU / 8 GB for renders, more than the free tier allows |
 | 2 | **GitHub access** to `charan-ship-it/TrueCut` | your GitHub | Railway deploys from it; CI must be green |
 | 3 | **Google Workspace admin** (or someone who is) | admin.google.com | To create the *Internal* OAuth app for sign-in |
-| 4 | **Google OAuth client ID + secret** | console.cloud.google.com → Credentials (step 3 below) | Needs the final web URL, so you create it after step 2 |
+| 4 | **Google OAuth client ID + secret**, and/or a **Nylas** API key for email links | console.cloud.google.com → Credentials (step 3 below) | Needs the final web URL, so you create it after step 2 |
 | 5 | **Anthropic API key** for the workspace | console.anthropic.com → API keys | Optional at deploy time: owners can add it later in Settings → API keys. Make sure the account has credits and access to Claude Opus 5.5 |
 | 6 | **ElevenLabs API key** | elevenlabs.io → Developers → API keys | Allow Text to Speech, Speech to Text and Voices. A plan with enough characters for your voice-overs |
 | 7 | **Two random secrets** | run `openssl rand -base64 32` twice | One for `NEXTAUTH_SECRET` (sessions), one for `TRUECUT_ENCRYPTION_KEY` (saved API keys). **Store the encryption key in your password manager**: if it is lost, saved keys can't be opened and must be re-entered |
@@ -82,7 +82,11 @@ Tip: put everything except the `NEXTAUTH_*` and `GOOGLE_*` values in **Project S
 
 If your bucket's *Credentials* tab says it needs path-style URLs, also set `S3_FORCE_PATH_STYLE=true`.
 
-## 3. Google sign-in
+## 3. Sign-in: Google, email links, or both
+
+People can sign in with Google, with a one-time link emailed to them, or either. Each way shows on the sign-in page only when it is set up, and both lead to the same account for the same address.
+
+### Google
 
 1. Open [Google Cloud console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials) in a project owned by your Google Workspace.
 2. **OAuth consent screen:** User type **Internal** (only your organisation can sign in), app name *TrueCut*.
@@ -91,7 +95,22 @@ If your bucket's *Credentials* tab says it needs path-style URLs, also set `S3_F
    - Authorised redirect URI: the same URL + `/api/auth/callback/google`
 4. Copy the client ID and secret into the web service's `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 
-Only addresses at `ALLOWED_EMAIL_DOMAINS` (plus any in `ALLOWED_EMAILS`) get in. If neither is set, nobody can sign in. Whoever signs in first becomes the workspace owner.
+### Email links (Nylas)
+
+The link is sent through [Nylas](https://dashboard.nylas.com). Add to the **web** service:
+
+| Variable | Value |
+|---|---|
+| `NYLAS_API_KEY` | Nylas dashboard → API Keys |
+| `NYLAS_API_URI` | `https://api.us.nylas.com` (or the EU URI if your Nylas app is in the EU) |
+| either `NYLAS_SEND_DOMAIN` + `EMAIL_FROM` | a domain verified under Organization Settings → Domains (e.g. `mail.aixccelerate.com`) and `TrueCut <signin@mail.aixccelerate.com>`. Recommended: no mailbox needed, best delivery |
+| or `NYLAS_GRANT_ID` + `NYLAS_MAILBOX_EMAIL` | a connected mailbox; links come from that address, shown as "TrueCut" |
+
+A link works once, for 15 minutes, and only for an allowed address. Opening it shows a *Continue* button, so mail scanners that open links can't use it up. The form answers the same for any address, so it can't be used to find out who is on the team. Requests are limited per address and per IP.
+
+### Who gets in
+
+Only addresses at `ALLOWED_EMAIL_DOMAINS` (plus any in `ALLOWED_EMAILS`) get in, whichever way they sign in. If neither is set, nobody can sign in. Whoever signs in first becomes the workspace owner.
 
 ## 4. Add the worker service
 
@@ -151,7 +170,9 @@ That copies every project into Postgres and uploads its files to the bucket. Use
 
 | Symptom | Look at |
 |---|---|
-| Sign-in page says "isn't set up" | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET` on web |
+| Sign-in page says "isn't set up" | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, or the `NYLAS_*` values, and `NEXTAUTH_SECRET` on web |
+| "We couldn't send the email" | web Deploy Logs show `[signin] email not sent: Nylas …` with the reason (bad key, unverified domain, mailbox disconnected) |
+| Email link says "expired or already used" | links last 15 minutes and work once; only the newest 3 per address stay valid |
 | Google says *redirect_uri_mismatch* | the redirect URI in Google must be exactly `<NEXTAUTH_URL>/api/auth/callback/google` |
 | "That account isn't on the TrueCut team" | `ALLOWED_EMAIL_DOMAINS` / `ALLOWED_EMAILS` |
 | Nick never starts working | worker logs; `TRUECUT_QUEUE=pgboss` on web; the worker has the same `DATABASE_URL` |
@@ -181,6 +202,7 @@ That copies every project into Postgres and uploads its files to the bucket. Use
 | `TRUECUT_MODEL`, `TRUECUT_CREATIVE_MODEL`, `TRUECUT_VISION_MODEL` | both | `claude-opus-5-5` | defaults before an owner picks models in Settings |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL` | web | required hosted | sign-in |
 | `ALLOWED_EMAIL_DOMAINS`, `ALLOWED_EMAILS` | web | nobody | who may sign in |
+| `NYLAS_API_KEY`, `NYLAS_API_URI`, `NYLAS_SEND_DOMAIN` + `EMAIL_FROM` or `NYLAS_GRANT_ID` + `NYLAS_MAILBOX_EMAIL` | web | email links off | sign-in links by email |
 | `TRUECUT_WORKSPACE_NAME` | web | `AI Xccelerate` | the team workspace's name |
 | `TRUECUT_RENDER_SLOTS`, `TRUECUT_WORKER_CONCURRENCY`, `TRUECUT_WORKERS` | worker | 1, 3, auto | throughput per worker |
 | `TRUECUT_SHUTDOWN_GRACE_SECONDS` | worker | 300 | finish running jobs on deploy |

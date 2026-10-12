@@ -1,4 +1,5 @@
-// Every page and API route needs a signed-in team member, except sign-in itself, the health check,
+// Every page and API route needs a signed-in team member, except sign-in itself (/signin/*, /api/auth*,
+// which includes /api/auth-link), the health check,
 // the extension API (/api/ext/*, which checks its own bearer token)
 // and static assets. With sign-in off (local development) everything is open.
 import { NextResponse, type NextRequest } from 'next/server';

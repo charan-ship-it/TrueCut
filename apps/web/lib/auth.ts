@@ -1,7 +1,9 @@
-// Sign-in: Google accounts from the team's domain(s). Sessions are signed JWT cookies (no session table);
-// every sign-in upserts the user into the team workspace.
+// Sign-in: Google accounts from the team's domain(s), and/or a one-time link emailed to the address
+// (through Nylas, see lib/mailer.ts). Sessions are signed JWT cookies (no session table); every sign-in
+// upserts the user into the team workspace, so both ways land on the same account.
 //
 //   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET   OAuth client (Google Cloud console → Credentials)
+//   NYLAS_API_KEY + NYLAS_SEND_DOMAIN or NYLAS_GRANT_ID   turns on email links (see lib/mailer.ts)
 //   NEXTAUTH_SECRET                           random string that signs the session cookie
 //   NEXTAUTH_URL                              the public URL, e.g. https://truecut.up.railway.app
 //   ALLOWED_EMAIL_DOMAINS                     e.g. aixccelerate.com (comma-separated)
@@ -11,8 +13,9 @@
 import type { NextAuthOptions } from 'next-auth';
 import { getServerSession } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
+import CredentialsProvider from 'next-auth/providers/credentials';
 import { env, loadEnv } from '@truecut/config';
-import { upsertUser, isMember, projectMeta, memberRole, userForToken, DEFAULT_WORKSPACE_ID, type SessionUser } from '@truecut/db';
+import { consumeEmailToken, upsertUser, isMember, projectMeta, memberRole, userForToken, DEFAULT_WORKSPACE_ID, type SessionUser } from '@truecut/db';
 
 loadEnv();
 
@@ -32,10 +35,20 @@ export const authOptions: NextAuthOptions = {
   secret: env('NEXTAUTH_SECRET') || env('AUTH_SECRET') || undefined,
   session: { strategy: 'jwt', maxAge: 30 * 24 * 3600 },
   pages: { signIn: '/signin', error: '/signin' },
-  providers: env('GOOGLE_CLIENT_ID') ? [GoogleProvider({
-    clientId: env('GOOGLE_CLIENT_ID'), clientSecret: env('GOOGLE_CLIENT_SECRET'),
-    authorization: { params: { prompt: 'select_account', ...(list(env('ALLOWED_EMAIL_DOMAINS')).length === 1 ? { hd: list(env('ALLOWED_EMAIL_DOMAINS'))[0] } : {}) } },
-  })] : [],
+  providers: [
+    ...(env('GOOGLE_CLIENT_ID') ? [GoogleProvider({
+      clientId: env('GOOGLE_CLIENT_ID'), clientSecret: env('GOOGLE_CLIENT_SECRET'),
+      authorization: { params: { prompt: 'select_account', ...(list(env('ALLOWED_EMAIL_DOMAINS')).length === 1 ? { hd: list(env('ALLOWED_EMAIL_DOMAINS'))[0] } : {}) } },
+    })] : []),
+    // The emailed link opens /signin/verify, which posts the token here. Using it deletes it.
+    CredentialsProvider({
+      id: 'email-link', name: 'Email link',
+      credentials: { email: { type: 'email' }, token: { type: 'text' } },
+      async authorize(c) {
+        return verifyEmailLink(c?.email, c?.token);
+      },
+    }),
+  ],
   callbacks: {
     async signIn({ profile, user }) {
       const verified = (profile as any)?.email_verified !== false;
@@ -51,6 +64,13 @@ export const authOptions: NextAuthOptions = {
     },
   },
 };
+
+/** The user for a valid, unused sign-in link (the link is used up), else null. */
+export async function verifyEmailLink(email?: string | null, token?: string | null) {
+  if (!email || !token || !emailAllowed(email)) return null;
+  const owner = await consumeEmailToken(email, token);
+  return owner ? { id: owner, email: owner, name: null, image: null } : null;
+}
 
 const LOCAL: SessionUser & { workspaceId: string } = { id: '', email: 'local@truecut', name: 'Local', image: null, workspaceId: DEFAULT_WORKSPACE_ID };
 

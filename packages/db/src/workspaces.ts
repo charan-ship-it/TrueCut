@@ -1,6 +1,6 @@
 // Workspaces and members. Today TrueCut runs one workspace for the whole team; the model already
 // supports several so a later AIX Core integration can map its organisations onto workspaces.
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { env } from '@truecut/config';
 import { db } from './client';
 import { memberships, users, workspaces } from './schema';
@@ -24,7 +24,8 @@ export async function upsertUser(u: { email: string; name?: string | null; image
   const ws = await ensureDefaultWorkspace();
   const email = u.email.toLowerCase();
   const [row] = await db().insert(users).values({ id: 'u_' + newId(), email, name: u.name || email.split('@')[0], image: u.image || null })
-    .onConflictDoUpdate({ target: users.email, set: { name: u.name || email.split('@')[0], image: u.image || null, lastSeenAt: new Date() } }).returning();
+    // a sign-in that doesn't know the name or picture (an email link) keeps the ones already saved
+    .onConflictDoUpdate({ target: users.email, set: { name: u.name ? u.name : sql`${users.name}`, image: u.image ? u.image : sql`${users.image}`, lastSeenAt: new Date() } }).returning();
   const first = (await db().select().from(memberships).where(eq(memberships.workspaceId, ws)).limit(1)).length === 0;
   await db().insert(memberships).values({ workspaceId: ws, userId: row.id, role: first ? 'owner' : 'member' }).onConflictDoNothing();
   return { id: row.id, email: row.email, name: row.name, image: row.image };

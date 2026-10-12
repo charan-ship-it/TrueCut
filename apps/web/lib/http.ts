@@ -27,6 +27,11 @@ export async function body<S extends ZodTypeAny>(req: Request, schema: S): Promi
   return schema.parse(raw);
 }
 
+/** An API route anyone may call (sign-in). Same error handling, no user. */
+export function publicRoute<C = any>(fn: (req: Request, ctx: C) => Promise<Response> | Response) {
+  return async (req: Request, ctx: C) => { try { return await fn(req, ctx); } catch (e) { return onError(e); } };
+}
+
 type User = Awaited<ReturnType<typeof requireUser>>;
 /** An API route for any signed-in member. The handler gets the user as a third argument. */
 export function route<C = any>(fn: (req: Request, ctx: C, user: User) => Promise<Response> | Response) {

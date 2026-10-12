@@ -150,3 +150,11 @@ export const libraryAssets = pgTable('library_assets', {
   index('library_ws_created_idx').on(t.workspaceId, t.createdAt),
   uniqueIndex('library_ws_sha_idx').on(t.workspaceId, t.sha256).where(sql`${t.deletedAt} is null`),
 ]);
+
+// One-time sign-in links sent by email. Only the SHA-256 of the token is stored; a row is deleted when used.
+export const emailTokens = pgTable('email_tokens', {
+  tokenHash: text('token_hash').primaryKey(),
+  email: text('email').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index('email_tokens_email_idx').on(t.email)]);

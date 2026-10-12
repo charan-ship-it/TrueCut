@@ -11,6 +11,8 @@ export const LIMITS = {
   upload: { n: 120, perMs: 60_000 },    // captures and uploads
   keys: { n: 10, perMs: 60_000 },       // saving / testing API keys
   read: { n: 600, perMs: 60_000 },
+  signinIp: { n: 10, perMs: 600_000 },  // sign-in link requests per IP
+  signinEmail: { n: 3, perMs: 600_000 },// sign-in link emails per address
 } as const;
 
 export function rateLimit(kind: keyof typeof LIMITS, who: string) {

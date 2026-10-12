@@ -333,6 +333,11 @@ table.t{width:100%;border-collapse:collapse} table.t td,table.t th{padding:9px 8
 .signin-card p{margin:0;line-height:1.5}
 .signin-btn{width:100%;height:42px;margin-top:8px;font-size:14px}
 .signin-err{color:var(--bad,#ff6b6b);font-size:13px}
+.signin-or{display:flex;align-items:center;gap:10px;width:100%;color:var(--dim,#888);font-size:12px}
+.signin-or::before,.signin-or::after{content:"";flex:1;height:1px;background:var(--line2)}
+.signin-form{display:flex;flex-direction:column;gap:8px;width:100%}
+.signin-form input{height:42px;font-size:14px}
+.signin-sent{width:100%;padding:14px;border:1px solid var(--line2);border-radius:12px;font-size:14px;line-height:1.5}
 .whoami{display:flex;align-items:center;gap:9px;padding:6px 9px;min-width:0}
 .whoami img,.whoami .av{width:24px;height:24px;border-radius:50%;flex:none;background:var(--panel3);display:grid;place-items:center;font:600 11px Geist;color:var(--muted)}
 

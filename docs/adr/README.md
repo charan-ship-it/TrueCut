@@ -9,3 +9,5 @@ Add one when a change would surprise someone reading the code later. Number them
 | [0002](0002-postgres-job-queue.md) | Postgres for both the data and the job queue (pg-boss), no Redis |
 | [0003](0003-bucket-with-local-working-folder.md) | Files in an S3-compatible bucket; each job works in a local copy |
 | [0004](0004-google-sign-in.md) | Google sign-in limited to the team's domain; one team workspace for now |
+| [0005](0005-models-keys-and-usage.md) | Claude Opus 5.5 by default, bring-your-own keys, a usage ledger and budgets |
+| [0006](0006-screenshot-library-and-extension.md) | A team screenshot library fed by a Chrome extension |

@@ -32,6 +32,14 @@
 | `@truecut/core` | every pipeline and Nick; registers the job handlers | all of the above |
 | `apps/web`, `apps/worker` | the two services | core and the rest |
 
+### Who a job works for
+
+Every job runs inside a context (`packages/config/src/context.ts`) resolved when it starts: the workspace, the person who started it, their API keys (personal → workspace → server) and the workspace's model choices. All Claude calls go through `core/system/claude.ts` and all ElevenLabs calls through `core/system/eleven.ts`. These check the budget, retry, explain errors and write the usage ledger ([ADR 0005](adr/0005-models-keys-and-usage.md)).
+
+### Screenshot library
+
+`apps/extension` (Chrome) and the Library page upload captures. A `library_read` job has Claude read each one. Nick attaches matching shots to a video as visuals plus sources, so their numbers pass the fact guard ([ADR 0006](adr/0006-screenshot-library-and-extension.md)).
+
 ### Job kinds
 
 | Kind | Started by | Does |
@@ -39,6 +47,7 @@
 | `nick` | every chat message or card click | one Nick turn: intake → facts → questions → angles → storyboard → voice → render, as far as the turn goes |
 | `ingest` | Edit bay: add a link, path, text or upload | read one source |
 | `analyze`, `storyboard`, `revise`, `voice`, `audio`, `render` | Edit bay buttons | one pipeline step |
+| `library_read` | a capture or upload to the Library, or *Read again* | thumbnail + Claude reads the screenshot |
 
 Renders hold a render slot (`TRUECUT_RENDER_SLOTS`) however they were started. A job whose worker stops sending heartbeats for 90 s is marked failed so the UI stops waiting.
 

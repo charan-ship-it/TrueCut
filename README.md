@@ -41,6 +41,12 @@ TRUECUT_ENV_FILES=../linkedin-nick/.env,../agent-nick/.env.local
 
 Every setting is listed in [.env.example](.env.example).
 
+### What's in it
+
+- **Nick, the director**: chat-first. Claude Opus 5.5 writes the facts, angles, storyboards and edits.
+- **Team Library + Chrome extension**: capture real product screens (even behind a login), blur personal data, and Nick uses them, with their on-screen numbers as sourced facts.
+- **Settings**: your own or the workspace's Anthropic and ElevenLabs keys (encrypted), the model per job type, a monthly budget, and a **Usage** page with tokens and cost by person, video, model and task.
+
 ### For the team (hosted)
 
 TrueCut runs on Railway as two services from one image: **web** (UI + API) and **worker** (Nick turns, transcription, voice, renders), with Postgres for data and the job queue and a bucket for files. Team members sign in with their Google work account.
@@ -95,8 +101,9 @@ npm test                 # unit + integration tests (uses a local truecut_test d
 
 ```
 apps/
-  web/          Next.js app: chat UI, API routes, Google sign-in
+  web/          Next.js app: chat UI, Library, Settings, API routes, Google sign-in
   worker/       background job runner (pg-boss consumer)
+  extension/    TrueCut Capture for Chrome (Manifest V3, no build step)
 packages/
   core/         the pipelines: sources, ads (facts, storyboard, casting), talk, audio, render, Nick (director)
   engine/       the deterministic renderer (runtime.js, talk.js, styles.js), shared by preview and render

@@ -2,6 +2,23 @@
 
 This sets up TrueCut for the team: everyone signs in with their Google work account and sees the same projects.
 
+## Have these ready first
+
+Collect these before you open Railway; the rest of this guide is copying them into the right boxes.
+
+| # | Thing | Where to get it | Notes |
+|---|---|---|---|
+| 1 | **Railway account** on a paid plan (Pro recommended) | railway.com | The worker needs 4+ vCPU / 8 GB for renders, more than the free tier allows |
+| 2 | **GitHub access** to `charan-ship-it/TrueCut` | your GitHub | Railway deploys from it; CI must be green |
+| 3 | **Google Workspace admin** (or someone who is) | admin.google.com | To create the *Internal* OAuth app for sign-in |
+| 4 | **Google OAuth client ID + secret** | console.cloud.google.com → Credentials (step 3 below) | Needs the final web URL, so you create it after step 2 |
+| 5 | **Anthropic API key** for the workspace | console.anthropic.com → API keys | Optional at deploy time: owners can add it later in Settings → API keys. Make sure the account has credits and access to Claude Opus 5.5 |
+| 6 | **ElevenLabs API key** | elevenlabs.io → Developers → API keys | Allow Text to Speech, Speech to Text and Voices. A plan with enough characters for your voice-overs |
+| 7 | **Two random secrets** | run `openssl rand -base64 32` twice | One for `NEXTAUTH_SECRET` (sessions), one for `TRUECUT_ENCRYPTION_KEY` (saved API keys). **Store the encryption key in your password manager**: if it is lost, saved keys can't be opened and must be re-entered |
+| 8 | **Your email domain(s)** | | e.g. `aixccelerate.com`, for `ALLOWED_EMAIL_DOMAINS` |
+| 9 | **A monthly AI budget** | your call | Owners set it in Settings → Models & budget; calls stop cleanly when it's reached |
+| 10 | (optional) **A custom domain** | your DNS | e.g. `truecut.aixccelerate.com`; then use it for `NEXTAUTH_URL` and the Google redirect |
+
 ## What you'll create
 
 | Railway item | What it is | Why |
@@ -16,7 +33,7 @@ No Redis, no volume and no separate frontend service are needed.
 
 ## 1. Create the project
 
-1. In Railway: **New Project → Deploy from GitHub repo →** `charan-ship-it/motion-graphics`. Railway creates one service; this will be **web**.
+1. In Railway: **New Project → Deploy from GitHub repo →** `charan-ship-it/TrueCut`. Railway creates one service; this will be **web**.
 2. **+ New → Database → PostgreSQL.**
 3. **+ New → Bucket.** Pick the region closest to the services.
 
@@ -46,6 +63,9 @@ No Redis, no volume and no separate frontend service are needed.
 | `NEXTAUTH_SECRET` | a long random string: run `openssl rand -base64 32` |
 | `NEXTAUTH_URL` | the domain from above, e.g. `https://truecut-web.up.railway.app` |
 | `ALLOWED_EMAIL_DOMAINS` | `aixccelerate.com` |
+| `TRUECUT_ENCRYPTION_KEY` | the second random secret (encrypts API keys people save in Settings) |
+
+`ANTHROPIC_API_KEY` and `ELEVENLABS_API_KEY` are the server's fallback keys. You can leave them out and have an owner add a workspace key in **Settings → API keys** instead (people can also add personal keys); jobs use personal, then workspace, then server keys.
 
 Tip: put everything except the `NEXTAUTH_*` and `GOOGLE_*` values in **Project Settings → Shared Variables** and share them with both services, so you only type them once.
 
@@ -66,7 +86,7 @@ Only addresses at `ALLOWED_EMAIL_DOMAINS` (plus any in `ALLOWED_EMAILS`) get in.
 
 1. **+ New → GitHub Repo →** the same repo.
 2. **Settings:** name it `worker`, **Config file path** `/apps/worker/railway.json`, and under **Resources** give it more CPU and memory than web (4 vCPU / 8 GB to start). Don't generate a domain: it doesn't serve the public.
-3. **Variables:** the same shared ones as web (`DATABASE_URL`, the bucket values, `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`). It doesn't need the Google or NextAuth values.
+3. **Variables:** the same shared ones as web (`DATABASE_URL`, the bucket values, `TRUECUT_ENCRYPTION_KEY`, and `ANTHROPIC_API_KEY` / `ELEVENLABS_API_KEY` if you use server keys). It doesn't need the Google or NextAuth values. **The encryption key must be identical on both services**, or the worker can't open saved keys.
 
 Optional worker settings:
 
@@ -84,6 +104,14 @@ Deploy both services. On each web deploy Railway first runs the database migrati
 - Open the web URL: you should land on the TrueCut sign-in page.
 - Sign in, paste a website, and watch Nick work. The worker's **Deploy Logs** show `[worker] listening for …` and each job.
 - `https://<web-url>/api/health` shows which pieces are ready (database, ffmpeg, keys present or not). It never shows key values.
+
+## After the first deploy
+
+1. **Sign in first.** The first person to sign in becomes the workspace owner.
+2. **Settings → API keys:** add the workspace Anthropic and ElevenLabs keys (unless you set server keys). Each key is checked with the provider before it's saved.
+3. **Settings → Models & budget:** Claude Opus 5.5 is the default for all three job types. Set a monthly budget.
+4. **Settings → Capture extension:** download the extension, load it in Chrome (Developer mode → Load unpacked), create a token and connect. Share the zip and these steps with the team; everyone makes their own token.
+5. Make a test video, then check **Settings → Usage** shows its tokens and cost.
 
 ## Moving existing projects from a laptop
 
@@ -117,4 +145,33 @@ That copies every project into Postgres and uploads its files to the bucket. Use
 | "That account isn't on the TrueCut team" | `ALLOWED_EMAIL_DOMAINS` / `ALLOWED_EMAILS` |
 | Nick never starts working | worker logs; `TRUECUT_QUEUE=pgboss` on web; the worker has the same `DATABASE_URL` |
 | Images or videos don't load | bucket variables on **both** services; try `S3_FORCE_PATH_STYLE=true` |
+| "Saving API keys is turned off" | `TRUECUT_ENCRYPTION_KEY` missing on web |
+| Saved key shows **Rejected**, or jobs say the key was rejected | the provider refused it (revoked, out of credit, no model access). Replace it in Settings |
+| "Couldn't decrypt a stored API key" | `TRUECUT_ENCRYPTION_KEY` differs between web and worker, or was changed. Make them identical; to change it on purpose see *Rotating the encryption key* |
+| "monthly AI budget" message | the workspace hit its cap; an owner raises it in Settings → Models & budget |
+| Extension: "token is not valid any more" | the token was revoked or expired; make a new one in Settings → Capture extension |
 | A job says "The worker stopped before this finished" | the worker restarted mid-job (deploy or out of memory). Retry; if it repeats, give the worker more memory |
+
+## Rotating the encryption key
+
+1. Set the new value in `TRUECUT_ENCRYPTION_KEY` and the old one in `TRUECUT_ENCRYPTION_KEY_PREVIOUS`, on **both** services, and redeploy.
+2. Run `npm run keys:rotate` once (Railway: the web service's shell, or locally with the production `DATABASE_URL`).
+3. When it reports nothing left to re-encrypt, remove `TRUECUT_ENCRYPTION_KEY_PREVIOUS`.
+
+## All settings
+
+| Variable | Service | Default | Purpose |
+|---|---|---|---|
+| `DATABASE_URL` | both | required | Postgres |
+| `TRUECUT_QUEUE` | web | `pgboss` in the image | `inline` runs jobs inside web (single-service setups only) |
+| `BUCKET`, `ENDPOINT`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `REGION` (or `S3_*`) | both | unset = local disk | project files and the screenshot library |
+| `TRUECUT_ENCRYPTION_KEY` / `_PREVIOUS` | both | unset = can't save keys | encrypts API keys saved in Settings |
+| `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY` | both | unset | server fallback keys |
+| `TRUECUT_MODEL`, `TRUECUT_CREATIVE_MODEL`, `TRUECUT_VISION_MODEL` | both | `claude-opus-5-5` | defaults before an owner picks models in Settings |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL` | web | required hosted | sign-in |
+| `ALLOWED_EMAIL_DOMAINS`, `ALLOWED_EMAILS` | web | nobody | who may sign in |
+| `TRUECUT_WORKSPACE_NAME` | web | `AI Xccelerate` | the team workspace's name |
+| `TRUECUT_RENDER_SLOTS`, `TRUECUT_WORKER_CONCURRENCY`, `TRUECUT_WORKERS` | worker | 1, 3, auto | throughput per worker |
+| `TRUECUT_SHUTDOWN_GRACE_SECONDS` | worker | 300 | finish running jobs on deploy |
+| `TRUECUT_ELEVEN_USD_PER_1K_CHARS`, `TRUECUT_ELEVEN_USD_PER_MINUTE` | both | 0 | optional ElevenLabs cost estimates on the Usage page (plans differ) |
+| `TRUECUT_ALLOW_PATHS` | both | off with a bucket | folder-path sources on a self-hosted box |

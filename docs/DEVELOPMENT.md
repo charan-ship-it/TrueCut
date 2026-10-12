@@ -53,6 +53,12 @@ Sign-in is off unless `GOOGLE_CLIENT_ID` is set, and everyone is the "Local" use
 (see [DEPLOYMENT.md](DEPLOYMENT.md#3-google-sign-in)) with the redirect URI `http://localhost:3100/api/auth/callback/google`
 and set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL=http://localhost:3100` and `ALLOWED_EMAIL_DOMAINS`.
 
+### The Chrome extension
+
+`apps/extension` is the extension as-is, with no build step. In Chrome: `chrome://extensions` → Developer mode → **Load unpacked** → `apps/extension`, then connect it to `http://localhost:3100` with a token from Settings → Capture extension (tokens need sign-in, so set up Google sign-in locally, or use the Library page's upload). Reload the extension after editing its files.
+
+`node tools/e2e/extension.mjs --base … --session … --site …` drives the real extension in Chromium: connect, capture visible, area and full page, blur, save, and checks the Library read them. See the comment at the top of the file.
+
 ## Checks before you push
 
 ```bash

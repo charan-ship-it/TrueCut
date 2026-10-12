@@ -1,6 +1,9 @@
 // Nick — the conversational director. Every user turn (typed text, dropped sources, or a click on a
 // card) runs as one background job that advances the project and posts messages + rich cards to the
 // project's chat. Claude interprets free-form messages; a rule-based interpreter keeps it usable without a key.
+import '../system/context';
+import { attachToProject, suggestForProject } from '../library/library';
+import { projectMeta } from '@truecut/db';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config, ROOT } from '@truecut/config';
@@ -156,6 +159,12 @@ async function intake(pid: string, items: Attachment[], text: string, jobId: str
   const added = p.sources.filter((s) => !before.sources.some((b) => b.id === s.id) || items.some((i) => i.kind === 'upload' && i.ref === s.id));
   if (!p.sources.some((s) => s.status === 'ready')) { await pr.finish("Couldn't read that"); await post(pid, { role: 'nick', text: "I couldn't read any of that. Check the link or path and try again, or paste the text directly." }); return; }
   if (p.talk.media.length) return talkIntake(pid, pr, added.map((x) => x.id));
+  const ws = (await projectMeta(pid))?.workspaceId;
+  if (ws) {
+    // real product screens the team captured for this site beat anything a crawler can see
+    const hits = (await suggestForProject(pid, ws).catch(() => [])).sort((a, b) => Number(!!(a.analysis as any)?.sensitive?.has) - Number(!!(b.analysis as any)?.sensitive?.has)).slice(0, 8);
+    if (hits.length) { await pr.step(`Adding ${hits.length} product shot${hits.length > 1 ? 's' : ''} from the team Library`); await attachToProject(pid, hits.map((h) => h.id), ws); }
+  }
   await pr.step('Pulling out facts, numbers and visuals');
   await analyze(pid, sublog(pr));
   await pr.step('Fact-checking every claim against the source');
@@ -169,6 +178,10 @@ async function intake(pid: string, items: Attachment[], text: string, jobId: str
     text: summaryLine(q, verified, shots),
     cards: [{ kind: 'sources', ids: added.map((s) => s.id) }, { kind: 'facts' }],
   });
+  if (ws && q.intake.productName) {
+    const more = await suggestForProject(pid, ws).catch(() => []);
+    if (more.length) await post(pid, { role: 'nick', text: `The team Library also has **${more.length}** screenshot${more.length > 1 ? 's' : ''} of ${q.intake.productName}. Want me to use them? Their on-screen numbers count as sourced facts.`, cards: [{ kind: 'library', ids: more.slice(0, 12).map((m) => m.id) }], replies: ['Use the Library shots'] });
+  }
   await updateProject(pid, (pp) => { pp.stage = 'questions'; });
   await post(pid, { role: 'nick', text: "A few things only you know. I've pre-filled my best guesses, so change what's wrong and send.", cards: [{ kind: 'questions' }] });
 }
@@ -354,6 +367,7 @@ const DECIDE_TOOL = {
 async function interpret(pid: string, text: string, jobId: string) {
   const p = await getProject(pid);
   if (p.kind === 'talk') return interpretTalk(pid, text, jobId);
+  if (/\b(library|captures?)\b/i.test(text) && /\b(use|add|include|pull|take|grab)\b|^\/library/i.test(text)) return useLibrary(pid, jobId);
   const quick = rules(text, p);
   let plan: { reply: string; actions: any[] } | null = quick;
   if (!plan && config.anthropicKey) {
@@ -365,7 +379,7 @@ async function interpret(pid: string, text: string, jobId: string) {
     });
   }
   if (!plan) {
-    await post(pid, { role: 'nick', text: "Without an AI key I can only do the basics: pick a look, change the length, write the storyboard, or render. Add ANTHROPIC_API_KEY to unlock free-form edits.", replies: ['Write the storyboard', 'Render it', 'Try another look'] });
+    await post(pid, { role: 'nick', text: "Without an AI key I can only do the basics: pick a look, change the length, write the storyboard, or render. Add an Anthropic API key in Settings → API keys to unlock free-form edits.", replies: ['Write the storyboard', 'Render it', 'Try another look'] });
     return;
   }
   if (plan.reply) await post(pid, { role: 'nick', text: plan.reply });
@@ -386,6 +400,20 @@ async function interpret(pid: string, text: string, jobId: string) {
   }
   if (restory) return writeStory(pid, jobId);
   if (changed) await post(pid, { role: 'nick', text: 'Updated. The preview has the change.', cards: [{ kind: 'storyboard' }], replies: ['Render it', 'Try another look'] });
+}
+
+async function useLibrary(pid: string, jobId: string) {
+  const ws = (await projectMeta(pid))?.workspaceId;
+  const hits = ws ? await suggestForProject(pid, ws) : [];
+  if (!hits.length) { await post(pid, { role: 'nick', text: "I couldn't find screenshots of this product in the team Library. Capture some with the TrueCut extension (or upload them on the Library page), then ask me again." }); return; }
+  const pr = await progress(pid, jobId, 'Adding shots from the Library');
+  await pr.step(`Copying ${Math.min(hits.length, 12)} screenshot${hits.length > 1 ? 's' : ''}`);
+  const added = await attachToProject(pid, hits.slice(0, 12).map((h) => h.id), ws!);
+  const p = await getProject(pid);
+  if (['sources', 'facts', 'questions'].includes(p.stage)) { await pr.step('Reading their numbers and text'); await analyze(pid, sublog(pr)); }
+  await pr.finish('Library shots added');
+  const flagged = (await getProject(pid)).visuals.filter((v) => added.some((a) => a.visualId === v.id) && !v.use).length;
+  await post(pid, { role: 'nick', text: `Added **${added.length}** Library shot${added.length === 1 ? '' : 's'}.${flagged ? ` ${flagged} show personal data, so they're switched off. Turn them on in the Edit bay if that's fine to show.` : ''}${p.scenes.length ? ' Ask me to rework the storyboard if you want them in the video.' : ''}`, cards: [{ kind: 'sources', ids: added.map((a) => a.sourceId) }], replies: p.scenes.length ? ['Rework the storyboard with the new shots'] : [] });
 }
 
 async function interpretTalk(pid: string, text: string, jobId: string) {
@@ -414,7 +442,7 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
     tool: DECIDE_TOOL,
     content: [{ type: 'text', text: `Length now: ${p.talk.duration.toFixed(0)}s (target ${p.intake.length}s). Layout: ${p.talk.layout}. Look: ${p.style?.preset}.\nBeats:\n${p.talk.beats.map((b, i) => `${i + 1}. "${b.headline}" [${b.visual?.kind}]`).join('\n')}\n\nUser: ${text}` }],
   });
-  if (!plan) { await post(pid, { role: 'nick', text: 'Without an AI key I can change the length, layout, look and captions, or render. Add ANTHROPIC_API_KEY for free-form edits.', replies: ['Render it', 'Switch to overlay layout', 'Make it shorter'] }); return; }
+  if (!plan) { await post(pid, { role: 'nick', text: 'Without an AI key I can change the length, layout, look and captions, or render. Add an Anthropic API key in Settings → API keys for free-form edits.', replies: ['Render it', 'Switch to overlay layout', 'Make it shorter'] }); return; }
   if (plan.reply) await post(pid, { role: 'nick', text: plan.reply });
   let recut = null as { brief: any; note: string } | null; let changed = false; let relayout = false;
   for (const ac of plan.actions || []) {

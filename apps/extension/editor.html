@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>TrueCut Capture</title><link rel="stylesheet" href="ui.css">
+<style>
+body{display:grid;grid-template-columns:1fr 320px;height:100vh;overflow:hidden}
+main{position:relative;overflow:auto;background:#000;display:flex;align-items:flex-start;justify-content:center;padding:20px}
+#wrap{position:relative;cursor:crosshair;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+#view{display:block;max-width:100%}
+.sel{position:absolute;border:2px dashed #F47920;background:rgba(244,121,32,.12);pointer-events:none}
+aside{border-left:1px solid var(--line);background:var(--panel);padding:16px;overflow:auto}
+@media (max-width:800px){body{grid-template-columns:1fr;grid-template-rows:60vh auto;overflow:auto}aside{border-left:0;border-top:1px solid var(--line)}}
+</style></head>
+<body>
+  <main><div id="wrap"><canvas id="view"></canvas></div></main>
+  <aside class="col" style="gap:12px">
+    <div class="brand"><img src="icons/icon-48.png" alt=""><h1>Save to TrueCut</h1></div>
+    <div class="msg xs"><b>Blur personal data:</b> drag over names, emails or customer details. The blur is baked into the image before it leaves your computer.</div>
+    <div class="row"><button id="undo" class="btn" disabled>Undo blur</button><span id="count" class="xs dim"></span></div>
+    <label>Title<input id="title" maxlength="200"></label>
+    <label>Product<input id="product" list="products" maxlength="60" placeholder="e.g. Agent Nick"><datalist id="products"></datalist></label>
+    <label>Tags<input id="tags" placeholder="inbox, dashboard" maxlength="200"></label>
+    <label style="flex-direction:row;align-items:center;gap:8px;color:var(--ink)"><input id="incurl" type="checkbox" style="width:auto"> Save the page address <span id="host" class="dim xs"></span></label>
+    <div class="row"><button id="save" class="btn primary grow">Save to Library</button><button id="discard" class="btn ghost">Discard</button></div>
+    <div id="msg" class="msg" hidden></div>
+    <div class="xs dim" id="dims"></div>
+  </aside>
+  <script type="module" src="editor.js"></script>
+</body></html>

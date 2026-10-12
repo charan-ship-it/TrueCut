@@ -1,4 +1,5 @@
-// Every page and API route needs a signed-in team member, except sign-in itself, the health check
+// Every page and API route needs a signed-in team member, except sign-in itself, the health check,
+// the extension API (/api/ext/*, which checks its own bearer token)
 // and static assets. With sign-in off (local development) everything is open.
 import { NextResponse, type NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
@@ -16,5 +17,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api/auth|api/health|signin|_next/|engine/|brand/|icon.svg|apple-icon.png|favicon.ico).*)'],
+  matcher: ['/((?!api/auth|api/health|api/ext/|signin|_next/|engine/|brand/|icon.svg|apple-icon.png|favicon.ico).*)'],
 };

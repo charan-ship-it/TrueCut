@@ -10,3 +10,4 @@ qa-out/
 tools/fixtures/
 apps/web/public/engine/
 .DS_Store
+apps/web/public/downloads/

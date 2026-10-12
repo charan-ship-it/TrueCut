@@ -22,6 +22,7 @@ export function Card(props: P) {
     case 'talkbrief': return <TalkBrief {...props} />;
     case 'edit': return <Edit {...props} />;
     case 'cast': return <CastCard {...props} />;
+    case 'library': return <LibraryCard {...props} />;
     case 'error': return <div className="issue error">{props.c.message}</div>;
     default: return null;
   }
@@ -60,7 +61,7 @@ function Sources({ c, ctx }: P) {
       <div className="bd col" style={{ gap: 0 }}>
         {srcs.map((s) => (
           <div key={s.id} className="srcrow">
-            <span className="favi">{s.kind === 'url' ? (s.label.replace(/^https?:\/\/(www\.)?/, '')[0] || '?').toUpperCase() : s.kind === 'path' ? <I.folder size={14} /> : <I.file size={14} />}</span>
+            <span className="favi">{s.kind === 'url' ? (s.label.replace(/^https?:\/\/(www\.)?/, '')[0] || '?').toUpperCase() : s.kind === 'path' ? <I.folder size={14} /> : s.kind === 'library' ? <I.image size={14} /> : <I.file size={14} />}</span>
             <div className="grow" style={{ minWidth: 0 }}><div className="ell" style={{ fontWeight: 500, fontSize: 13.5 }}>{s.meta?.siteName || s.meta?.title || s.label}</div><div className="xs dim ell">{s.ref.length > 80 ? s.label : s.ref}</div></div>
             <span className="xs muted" style={{ textAlign: 'right' }}>{s.status === 'error' ? <span className="pill bad">Failed</span> : <>{s.pages?.length ? `${s.pages.length} pages · ` : ''}{Math.round(s.chars / 100) / 10}k chars</>}</span>
           </div>
@@ -403,6 +404,18 @@ function CastCard({ ctx, chat, msgId, send, busy }: P) {
         {c.music && <div className="row small" style={{ gap: 10, paddingTop: 2 }}><span className="pill acc">Score: {c.music.genre}{c.music.bpm ? ` · ${c.music.bpm} bpm` : ''}</span><span className="xs muted grow">{c.music.why}</span></div>}
         <div className="row"><span className="xs dim grow">{voiced ? 'Changes re-record only the affected lines.' : 'Voices are recorded when you render.'}</span><button className="btn sm" disabled={busy} onClick={() => send({ type: 'reply', text: 'Try a different voice' })}>Recast</button><button className="btn sm primary" disabled={busy} onClick={() => send({ type: 'render' })}>Render with this cast</button></div>
       </div>
+    </div>
+  );
+}
+
+// ─── shots offered from the team library ───
+function LibraryCard({ c }: P) {
+  const ids: string[] = c.ids || [];
+  if (!ids.length) return null;
+  return (
+    <div className="ccard">
+      <div className="hd"><span className="mono">From the team Library</span><span className="grow" /><a className="xs muted" href="/library">Open Library</a></div>
+      <div className="bd"><div className="thumbs">{ids.map((id) => <img key={id} src={`/api/library/${id}/image?thumb=1`} alt="" />)}</div></div>
     </div>
   );
 }

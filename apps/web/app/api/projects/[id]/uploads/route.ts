@@ -1,3 +1,4 @@
+import { rateLimit } from '@/lib/ratelimit';
 // PUT /api/projects/:id/uploads?name=<file name>[&ingest=1]   body: the raw file
 // Streams the file into the project (local folder, then the bucket) without holding it in memory, and
 // adds it as a source. Nick reads it during the next chat turn; ?ingest=1 (the Edit bay) reads it now.
@@ -12,6 +13,7 @@ export const dynamic = 'force-dynamic';
 const MAX = 4 * 1024 ** 3; // 4 GB
 
 export const PUT = projectRoute(async (req: Request, { params }: { params: { id: string } }, user) => {
+  rateLimit('upload', user.id);
   const u = new URL(req.url);
   const name = (u.searchParams.get('name') || '').replace(/[\\/]/g, '_').slice(0, 200);
   if (!name) return fail('name is required');

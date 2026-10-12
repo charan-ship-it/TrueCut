@@ -43,9 +43,32 @@ export function SourcesPanel(c: Ctx) {
             <td><button className="btn ghost sm" onClick={async () => { await fetch(`/api/projects/${p.id}/sources?sid=${s.id}`, { method: 'DELETE' }); c.reload(); }}>Remove</button></td></tr>)}
         </tbody></table>)}
     </div>
+    <LibraryPick {...c} />
     <Visuals {...c} />
     <Next label={p.facts.length ? 'Re-analyse sources →' : 'Analyse sources →'} disabled={ingesting || !p.sources.some((s) => s.status === 'ready') || c.busy('analyze')} onClick={async () => { await c.act('analyze'); c.go('facts'); }} />
   </>);
+}
+
+/** Shots from the team Library that match this project (same site or product). */
+function LibraryPick(c: Ctx) {
+  const { p } = c;
+  const [items, setItems] = useState<any[] | null>(null); const [msg, setMsg] = useState('');
+  const load = () => api(`/api/projects/${p.id}/library`).then((r) => setItems(r.items)).catch(() => setItems([]));
+  useEffect(() => { load(); }, [p.id, p.sources.length]); // eslint-disable-line
+  const add = async (ids: string[]) => { setMsg(''); try { const r = await api(`/api/projects/${p.id}/library`, { json: { ids } }); setMsg(`Added ${r.added.length}. Re-analyse to pull their numbers into the facts.`); await c.reload(); load(); } catch (e: any) { setMsg(e.message); } };
+  if (!items?.length && !msg) return null;
+  return (
+    <div className="card col">
+      <div className="row between"><h2>From the team Library</h2><span className="row"><a className="small muted" href="/library">Browse all</a>{!!items?.length && <button className="btn sm" onClick={() => add(items.map((i) => i.id))}>Add all {items.length}</button>}</span></div>
+      {msg && <div className="small muted">{msg}</div>}
+      <div className="grid3">{(items || []).map((a) => (
+        <div key={a.id} className="col" style={{ gap: 6 }}>
+          <div className="vis" title={a.summary || a.title} onClick={() => add([a.id])}><img src={a.thumb} alt={a.summary || a.title} /></div>
+          <div className="row xs"><span className="grow ell">{a.title}</span>{a.sensitive?.has && <span className="pill warn">Personal data</span>}<button className="btn ghost sm" onClick={() => add([a.id])}>Add</button></div>
+        </div>))}
+      </div>
+    </div>
+  );
 }
 
 function Visuals(c: Ctx) {
@@ -144,7 +167,7 @@ export function BriefPanel(c: Ctx) {
       </div>
       <div className="grid2">
         <label className="f">Hero / character image<select value={i.avatarVisual} onChange={(e) => set({ avatarVisual: e.target.value })}><option value="">None (letter mark)</option>{imgs.map((v) => <option key={v.id} value={v.id}>{v.id} · {v.kind} · {v.origin.slice(0, 40)}</option>)}</select></label>
-        <label className="f">Voice{voices && !voices.enabled ? <div className="small dim" style={{ padding: '8px 0' }}>Add ELEVENLABS_API_KEY to enable voice-over.</div> : <select value={p.cast?.members?.[0]?.voiceId || i.voiceId || voices?.default || ''} onChange={(e) => { const v = (voices?.voices || []).find((x: any) => x.id === e.target.value); set({ voiceId: e.target.value }); if (p.cast?.members?.length && v) c.save({ cast: { ...p.cast, auto: false, members: p.cast.members.map((m: any, k: number) => (k === 0 ? { ...m, voiceId: v.id, name: v.name.split(' - ')[0], labels: v.labels || {}, preview: v.preview, why: 'Picked by you' } : m)) } as any }); }}>{(voices?.voices || []).map((v) => <option key={v.id} value={v.id}>{v.name}{v.labels?.accent ? ` · ${v.labels.accent}` : ''}{v.labels?.gender ? ` · ${v.labels.gender}` : ''}</option>)}</select>}</label>
+        <label className="f">Voice{voices && !voices.enabled ? <div className="small dim" style={{ padding: '8px 0' }}>Add an ElevenLabs API key in Settings → API keys to enable voice-over.</div> : <select value={p.cast?.members?.[0]?.voiceId || i.voiceId || voices?.default || ''} onChange={(e) => { const v = (voices?.voices || []).find((x: any) => x.id === e.target.value); set({ voiceId: e.target.value }); if (p.cast?.members?.length && v) c.save({ cast: { ...p.cast, auto: false, members: p.cast.members.map((m: any, k: number) => (k === 0 ? { ...m, voiceId: v.id, name: v.name.split(' - ')[0], labels: v.labels || {}, preview: v.preview, why: 'Picked by you' } : m)) } as any }); }}>{(voices?.voices || []).map((v) => <option key={v.id} value={v.id}>{v.name}{v.labels?.accent ? ` · ${v.labels.accent}` : ''}{v.labels?.gender ? ` · ${v.labels.gender}` : ''}</option>)}</select>}</label>
       </div>
     </div>
     <div className="card col">

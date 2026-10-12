@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>TrueCut Capture</title><link rel="stylesheet" href="ui.css">
+<style>body{width:320px;padding:14px}.cap{display:grid;grid-template-columns:1fr;gap:6px}.cap .btn{justify-content:flex-start;height:38px}.cap .btn span:last-child{margin-left:auto}</style></head>
+<body>
+  <div class="row" style="margin-bottom:12px"><div class="brand grow"><img src="icons/icon-48.png" alt=""><h1>TrueCut Capture</h1></div><button id="menu" class="btn ghost xs" hidden>Disconnect</button></div>
+  <section id="connect" class="col" hidden>
+    <p class="muted xs" style="margin:0">Connect to your team's TrueCut. Get a token in TrueCut → Settings → Capture extension.</p>
+    <label>TrueCut address<input id="server" placeholder="https://truecut.up.railway.app" autocomplete="url"></label>
+    <label>Token<input id="token" type="password" placeholder="tc_…" autocomplete="off" spellcheck="false"></label>
+    <button id="go" class="btn primary">Connect</button>
+  </section>
+  <section id="ready" class="col" hidden>
+    <div class="xs muted" id="who"></div>
+    <div class="cap">
+      <button class="btn" data-mode="visible"><span>Visible area</span><span class="kbd">Alt⇧S</span></button>
+      <button class="btn" data-mode="area"><span>Select an area</span><span class="kbd">Alt⇧A</span></button>
+      <button class="btn" data-mode="full"><span>Full page</span><span class="xs dim">scrolls</span></button>
+    </div>
+    <div id="pending" class="col" hidden></div>
+    <a id="lib" class="xs muted" target="_blank" href="#">Open the Library</a>
+  </section>
+  <div id="msg" class="msg" hidden></div>
+  <script type="module" src="popup.js"></script>
+</body></html>

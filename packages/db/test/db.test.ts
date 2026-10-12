@@ -2,7 +2,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { dbReady } from '../../../tools/test/db';
 import { createProject, getProject, updateProject, listProjects, deleteProject, NotFound } from '../src/projects';
 import { createJob, reportJob, markRunning, finishJob, isBusy, busyProjects, failStaleJobs, getJob } from '../src/jobs';
-import { upsertUser, workspaceMembers, DEFAULT_WORKSPACE_ID } from '../src/workspaces';
+import { upsertUser, workspaceMembers, DEFAULT_WORKSPACE_ID, nameFromEmail, setUserName, getUser } from '../src/workspaces';
 import { db, closeDb } from '../src/client';
 import { jobs } from '../src/schema';
 import { eq } from 'drizzle-orm';
@@ -54,5 +54,19 @@ describe.skipIf(!dbReady)('postgres store', () => {
     expect(members.filter((m) => m.role === 'owner')).toHaveLength(1); // whoever signed in first
     expect(members.find((m) => m.id === b.id)?.role).toBe('member');
     expect(members.filter((m) => m.id === a.id)).toHaveLength(1);
+  });
+
+  it('names people from their address until they choose a name, and keeps the chosen one', async () => {
+    expect(nameFromEmail('charan.naik@aixccelerate.com')).toBe('Charan Naik');
+    expect(nameFromEmail('j_doe+tc@x.io')).toBe('J Doe Tc');
+    const u = await upsertUser({ email: 'pat.lee@example.com' });
+    expect(u.name).toBe('Pat Lee');
+    const g = await upsertUser({ email: 'pat.lee@example.com', name: 'Patricia Lee' }); // Google knows better than our guess
+    expect(g.name).toBe('Patricia Lee');
+    await setUserName(u.id, '  Pat   L. ');
+    expect((await getUser(u.id))!.name).toBe('Pat L.');
+    const again = await upsertUser({ email: 'pat.lee@example.com', name: 'Patricia Lee' }); // a chosen name wins
+    expect(again.name).toBe('Pat L.');
+    await expect(setUserName(u.id, '   ')).rejects.toThrow(/name/);
   });
 });

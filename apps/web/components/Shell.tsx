@@ -27,7 +27,7 @@ function App({ children }: { children: React.ReactNode }) {
   const [q, setQ] = useState('');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const refresh = () => api('/api/projects').then(setProjects).catch(() => setProjects([]));
-  useEffect(() => { api('/api/me').then(setMe).catch(() => {}); }, []);
+  useEffect(() => { const load = () => api('/api/me').then(setMe).catch(() => {}); load(); window.addEventListener('tc-me', load); return () => window.removeEventListener('tc-me', load); }, []);
   useEffect(() => { refresh(); api('/api/health').then(setHealth).catch(() => {}); try { const t = localStorage.getItem('nm-theme') as any; if (t) setTheme(t); setCollapsed(localStorage.getItem('nm-side') === '1'); } catch {} }, []);
   useEffect(() => { const busy = projects?.some((p) => p.busy); const t = setInterval(refresh, busy ? 2500 : 10000); return () => clearInterval(t); }, [projects]);
   useEffect(() => { refresh(); }, [path]);

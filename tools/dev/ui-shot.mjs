@@ -1,4 +1,4 @@
-// node tools/ui-shot.mjs <url> <out.png> [w] [h] [waitMs] [scrollToBottom]
+// node tools/dev/ui-shot.mjs <url> <out.png> [w] [h] [waitMs] [scrollToBottom]
 import { chromium } from 'playwright';
 const [, , url, out, w = '1440', h = '900', wait = '3000'] = process.argv;
 const b = await chromium.launch();

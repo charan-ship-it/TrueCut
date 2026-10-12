@@ -100,4 +100,5 @@ npm run db:generate            # after editing schema.ts: write a new migration
 npm run db:migrate             # apply migrations
 npm run make -- --url …        # make a video from the terminal
 psql "$DATABASE_URL" -c "select kind, status, count(*) from jobs group by 1, 2"
+node tools/dev/qa-directions.mjs /tmp/qa 4x5   # contact sheet per creative direction (see tools/dev/README.md)
 ```

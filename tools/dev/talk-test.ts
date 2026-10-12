@@ -1,5 +1,5 @@
 // Dev harness: builds a talk project from a recording + an ElevenLabs STT json, applies a plan, renders.
-// npx tsx tools/talk-test.ts <video> <stt.json> [plan.json] [formats]
+// npx tsx tools/dev/talk-test.ts <video> <stt.json> [plan.json] [formats]
 import fs from 'node:fs';
 import path from 'node:path';
 import { createProject, updateProject, getProject, deleteProject, closeDb } from '@truecut/db';

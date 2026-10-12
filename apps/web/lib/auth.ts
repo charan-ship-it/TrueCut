@@ -55,7 +55,7 @@ export const authOptions: NextAuthOptions = {
       return verified && emailAllowed(user?.email || profile?.email);
     },
     async jwt({ token, user }) {
-      if (user?.email) { const u = await upsertUser({ email: user.email, name: user.name, image: user.image }); token.uid = u.id; token.ws = DEFAULT_WORKSPACE_ID; }
+      if (user?.email) { const u = await upsertUser({ email: user.email, name: user.name, image: user.image }); token.uid = u.id; token.ws = DEFAULT_WORKSPACE_ID; token.name = u.name; token.picture = u.image; }
       return token;
     },
     async session({ session, token }) {

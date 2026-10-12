@@ -4,14 +4,14 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '../../components/api';
 import { I } from '../../components/icons';
 
-type Tab = 'keys' | 'models' | 'usage' | 'extension';
-const TABS: [Tab, string][] = [['keys', 'API keys'], ['models', 'Models & budget'], ['usage', 'Usage'], ['extension', 'Capture extension']];
+type Tab = 'profile' | 'keys' | 'models' | 'usage' | 'extension';
+const TABS: [Tab, string][] = [['profile', 'Profile'], ['keys', 'API keys'], ['models', 'Models & budget'], ['usage', 'Usage'], ['extension', 'Capture extension']];
 
 export default function SettingsPage() { return <Suspense fallback={null}><Settings /></Suspense>; }
 
 function Settings() {
   const sp = useSearchParams(); const r = useRouter();
-  const tab = (TABS.find(([k]) => k === sp.get('tab'))?.[0] || 'keys') as Tab;
+  const tab = (TABS.find(([k]) => k === sp.get('tab'))?.[0] || 'profile') as Tab;
   const [s, setS] = useState<any>(null); const [err, setErr] = useState('');
   const load = useCallback(() => api('/api/settings').then(setS).catch((e) => setErr(e.message)), []);
   useEffect(() => { load(); }, [load]);
@@ -23,11 +23,36 @@ function Settings() {
       {err && <div className="issue error" style={{ marginTop: 16 }}>{err}</div>}
       <div style={{ marginTop: 20 }}>
         {!s ? <div className="dim small">Loading…</div>
+          : tab === 'profile' ? <Profile />
           : tab === 'keys' ? <Keys s={s} reload={load} />
           : tab === 'models' ? <Models s={s} setS={setS} />
           : tab === 'usage' ? <Usage />
           : <Extension />}
       </div>
+    </div>
+  );
+}
+
+// ───────── Profile ─────────
+function Profile() {
+  const [me, setMe] = useState<any>(null); const [name, setName] = useState(''); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<{ t: string; bad?: boolean } | null>(null);
+  useEffect(() => { api('/api/me').then((m) => { setMe(m); setName(m.user.name || ''); }).catch((e) => setMsg({ t: e.message, bad: true })); }, []);
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault(); setBusy(true); setMsg(null);
+    try { const r = await api('/api/me', { method: 'PATCH', json: { name } }); setName(r.name); setMsg({ t: 'Saved.' }); window.dispatchEvent(new Event('tc-me')); }
+    catch (err: any) { setMsg({ t: err.message, bad: true }); }
+    setBusy(false);
+  };
+  if (!me) return <div className="dim small">Loading…</div>;
+  return (
+    <div className="ccard" style={{ maxWidth: 560 }}>
+      <div className="hd"><h3>Your profile</h3></div>
+      <form className="bd col" style={{ gap: 14 }} onSubmit={save}>
+        <label className="f"><span>Name</span><input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder="Your name" disabled={!me.auth} /></label>
+        <div className="xs dim">Shown in the sidebar and next to the videos you make.{!me.auth ? ' Sign-in is off on this machine, so there is no profile to save.' : ''}</div>
+        <label className="f"><span>Email</span><input value={me.user.email} disabled readOnly /></label>
+        {me.auth && <div className="row" style={{ gap: 10, alignItems: 'center' }}><button className="btn primary" disabled={busy || !name.trim() || name.trim() === me.user.name}>{busy ? 'Saving…' : 'Save'}</button>{msg && <span className={`xs ${msg.bad ? 'bad' : 'muted'}`}>{msg.t}</span>}</div>}
+      </form>
     </div>
   );
 }

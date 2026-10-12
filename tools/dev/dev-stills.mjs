@@ -1,5 +1,5 @@
 // Dev helper: render still frames of a composition JSON for visual QA.
-// node tools/dev-stills.mjs <comp.json> <4x5|9x16|1x1> <t1,t2,...> <outDir> [assetBaseUrl]
+// node tools/dev/dev-stills.mjs <comp.json> <4x5|9x16|1x1> <t1,t2,...> <outDir> [assetBaseUrl]
 import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';

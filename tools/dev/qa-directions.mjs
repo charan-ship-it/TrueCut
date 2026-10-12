@@ -1,5 +1,5 @@
 // Visual QA: renders one frame per scene for every creative direction → a contact sheet per direction.
-// node tools/qa-directions.mjs [outDir] [format] [presets,comma]
+// node tools/dev/qa-directions.mjs [outDir] [format] [presets,comma]
 import { chromium } from 'playwright';
 import fs from 'fs'; import path from 'path'; import http from 'http'; import { execFileSync } from 'child_process';
 import ffmpeg from 'ffmpeg-static';

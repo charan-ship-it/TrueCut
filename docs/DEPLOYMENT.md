@@ -28,8 +28,19 @@ Collect these before you open Railway; the rest of this guide is copying them in
 | **Postgres** | projects, chat, users, and the job queue | one database does both jobs ([why no Redis](adr/0002-postgres-job-queue.md)) |
 | **Bucket** | sources, screenshots, voice-overs, renders | both services read and write it ([why](adr/0003-bucket-with-local-working-folder.md)) |
 
-Both services build from the same `Dockerfile`; their settings come from `apps/web/railway.json` and `apps/worker/railway.json`.
+Both services build from the root `Dockerfile` (Railway detects it). Their deploy settings are listed below and live in
+Railway itself: Railway has retired `railway.json` config files (they stop being read on 2026-12-01), so the repo no longer ships them.
 No Redis, no volume and no separate frontend service are needed.
+
+| Setting (service → Settings) | web | worker |
+|---|---|---|
+| Custom start command | `truecut web` | `truecut worker` |
+| Pre-deploy command | `truecut migrate` | (none) |
+| Healthcheck path / timeout | `/api/health`, 120 s | `/health`, 120 s |
+| Restart policy | On failure, 5 retries | Always |
+| Draining seconds | (default) | `300` (lets running renders finish on deploy) |
+| Watch paths | `apps/web/**`, `packages/**`, `package-lock.json`, `Dockerfile`, `docker/**` | `apps/worker/**`, `packages/**`, `package-lock.json`, `Dockerfile`, `docker/**` |
+| Public domain | yes, port `3000` (set `PORT=3000`) | no |
 
 ## 1. Create the project
 
@@ -42,7 +53,7 @@ No Redis, no volume and no separate frontend service are needed.
 **Settings:**
 
 - **Service name:** `web`
-- **Config file path** (under *Config-as-code*): `/apps/web/railway.json`
+- The web column of the settings table above.
 - **Networking → Generate Domain.** Note the URL, e.g. `https://truecut-web.up.railway.app`.
 
 **Variables** (Variables tab). Values in `${{…}}` are Railway references: type them as shown, or use *Add Reference*. Replace `Postgres` and `Bucket` with your services' names if you renamed them.
@@ -85,7 +96,7 @@ Only addresses at `ALLOWED_EMAIL_DOMAINS` (plus any in `ALLOWED_EMAILS`) get in.
 ## 4. Add the worker service
 
 1. **+ New → GitHub Repo →** the same repo.
-2. **Settings:** name it `worker`, **Config file path** `/apps/worker/railway.json`, and under **Resources** give it more CPU and memory than web (4 vCPU / 8 GB to start). Don't generate a domain: it doesn't serve the public.
+2. **Settings:** name it `worker`, the worker column of the settings table above, and under **Resources** give it more CPU and memory than web (4 vCPU / 8 GB to start). Don't generate a domain: it doesn't serve the public.
 3. **Variables:** the same shared ones as web (`DATABASE_URL`, the bucket values, `TRUECUT_ENCRYPTION_KEY`, and `ANTHROPIC_API_KEY` / `ELEVENLABS_API_KEY` if you use server keys). It doesn't need the Google or NextAuth values. **The encryption key must be identical on both services**, or the worker can't open saved keys.
 
 Optional worker settings:

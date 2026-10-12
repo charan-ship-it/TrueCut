@@ -20,6 +20,9 @@ for (const f of ['.env.local', '.env']) {
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // We don't use next/image. Turning the optimizer off removes the /_next/image endpoint that most of
+  // Next 14's open advisories go through (DoS, disk growth, AVIF RCE) until we move to a newer Next.
+  images: { unoptimized: true },
   async headers() {
     const h = [
       { key: 'X-Content-Type-Options', value: 'nosniff' },

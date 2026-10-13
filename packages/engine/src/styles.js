@@ -19,6 +19,11 @@ export const FONTS = {
   'IBM Plex Mono': { files: [[500, 'ibm-plex-mono-latin-500-normal']], kind: 'mono' },
   VT323: { files: [[400, 'vt323-latin-400-normal']], kind: 'pixel' },
   'DM Sans': { files: [[500, 'dm-sans-latin-500-normal'], [700, 'dm-sans-latin-700-normal']], kind: 'grotesk' },
+  'Space Mono': { files: [[400, 'space-mono-latin-400-normal']], kind: 'mono' },
+  'Bowlby One': { files: [[400, 'bowlby-one-latin-400-normal']], kind: 'heavy' },
+  'IBM Plex Sans Condensed': { files: [[700, 'ibm-plex-sans-condensed-latin-700-normal']], kind: 'condensed' },
+  'IBM Plex Sans': { files: [[500, 'ibm-plex-sans-latin-500-normal'], [700, 'ibm-plex-sans-latin-700-normal']], kind: 'grotesk' },
+  Manrope: { files: [[700, 'manrope-latin-700-normal']], kind: 'grotesk' },
 };
 
 export function fontFaceCss(base) {
@@ -34,9 +39,9 @@ export function weightFor(fam, want) {
   const ok = ws.filter((w) => w <= want); return ok.length ? Math.max(...ok) : Math.min(...ws);
 }
 
-export const BACKGROUNDS = ['grid', 'paper', 'horizon', 'modules', 'stripes', 'blueprint', 'smoke', 'scanlines', 'blobs', 'solid', 'dots'];
-export const TRANSITIONS = ['zoom', 'wipe', 'iris', 'slide', 'glitch', 'cut', 'fade'];
-export const CAPTIONS = ['clean', 'box', 'karaoke', 'mono', 'none'];
+export const BACKGROUNDS = ['grid', 'paper', 'horizon', 'modules', 'stripes', 'blueprint', 'smoke', 'scanlines', 'blobs', 'solid', 'dots', 'aurora', 'halftone', 'bento', 'scraps', 'ruled', 'sparkle', 'baseline', 'handheld'];
+export const TRANSITIONS = ['zoom', 'wipe', 'iris', 'slide', 'glitch', 'cut', 'fade', 'blur', 'misregister', 'stopmotion', 'swipe'];
+export const CAPTIONS = ['clean', 'box', 'karaoke', 'mono', 'pill', 'none'];
 export const GENRES = ['pulse', 'cinematic', 'lofi', 'synthwave', 'house', 'trap', 'piano', 'ambient', 'bright'];
 
 export const DIRECTIONS = {
@@ -109,6 +114,62 @@ export const DIRECTIONS = {
     fonts: { display: 'Fraunces', body: 'DM Sans', mono: 'IBM Plex Mono' }, display: { weight: 900, case: 'none', tracking: -0.04, align: 'left' },
     background: 'dots', grain: 0.06, vignette: true, hud: 'minimal', captions: 'clean', transition: 'wipe', card: { radius: 12, style: 'solid' }, letterbox: false,
     music: { genre: 'lofi', bpm: 84, key: 4 },
+  },
+  aurora: {
+    brandable: true, label: 'Aurora', vibe: 'Restrained dark gradient, soft colour fields drifting behind crisp type, blur-push cuts. AI infrastructure, dev tools, premium SaaS launches.',
+    theme: 'dark', palette: { bg: '#07080D', bg2: '#10121B', ink: '#F4F5F8', muted: '#9AA0B4', accent: '#8B7CFF', accent2: '#3EE6C1', card: '#151826', line: '#262A3B' },
+    fonts: { display: 'Inter', body: 'Inter', mono: 'JetBrains Mono' }, display: { weight: 700, case: 'none', tracking: -0.03, align: 'center' },
+    background: 'aurora', grain: 0.05, vignette: true, hud: 'minimal', captions: 'clean', transition: 'blur', card: { radius: 18, style: 'glass' }, letterbox: false,
+    music: { genre: 'ambient', bpm: 120, key: 7 },
+  },
+  riso: {
+    brandable: true, label: 'Riso', vibe: 'Two-colour risograph zine: warm paper, halftone dots, fluoro pink and riso blue slightly out of register. Indie SaaS, creative tools, communities.',
+    theme: 'light', palette: { bg: '#F4EFE4', bg2: '#E9E1CF', ink: '#1C1A33', muted: '#5E5A6E', accent: '#E2337F', accent2: '#0B6FB8', card: '#FFFBF2', line: '#CFC6B2' },
+    fonts: { display: 'Bricolage Grotesque', body: 'DM Sans', mono: 'Space Mono' }, display: { weight: 800, case: 'none', tracking: -0.02, align: 'left' },
+    background: 'halftone', grain: 0.09, vignette: false, hud: 'minimal', captions: 'box', transition: 'misregister', card: { radius: 4, style: 'outline' }, letterbox: false,
+    music: { genre: 'lofi', bpm: 92, key: 5 },
+  },
+  bento: {
+    brandable: true, label: 'Bento', vibe: 'Keynote-style feature grid: light, rounded tiles, quiet blue, calm confidence. Multi-feature launches and "what\'s new" roundups.',
+    theme: 'light', palette: { bg: '#F5F5F7', bg2: '#E8E8ED', ink: '#1D1D1F', muted: '#6E6E73', accent: '#0066CC', accent2: '#D35400', card: '#FFFFFF', line: '#D2D2D7' },
+    fonts: { display: 'Geist', body: 'Geist', mono: 'JetBrains Mono' }, display: { weight: 600, case: 'none', tracking: -0.025, align: 'left' },
+    background: 'bento', grain: 0, vignette: false, hud: 'minimal', captions: 'clean', transition: 'blur', card: { radius: 28, style: 'soft' }, letterbox: false,
+    music: { genre: 'bright', bpm: 110, key: 0 },
+  },
+  cutout: {
+    label: 'Cutout', vibe: 'Collage on kraft paper: torn scraps, tape, chunky caps, stop-motion jitter. Consumer apps, founder stories, playful brands.',
+    theme: 'light', palette: { bg: '#EADFCB', bg2: '#DCCDB2', ink: '#1F1A14', muted: '#5C5244', accent: '#D2401E', accent2: '#2457A6', card: '#FAF6EE', line: '#B9A98C' },
+    fonts: { display: 'Bowlby One', body: 'DM Sans', mono: 'IBM Plex Mono' }, display: { weight: 400, case: 'upper', tracking: 0, align: 'center', bouncy: true, scale: 0.8 },
+    background: 'scraps', grain: 0.07, vignette: false, hud: 'none', captions: 'box', transition: 'stopmotion', card: { radius: 2, style: 'heavy' }, letterbox: false,
+    music: { genre: 'bright', bpm: 100, key: 4 },
+  },
+  markup: {
+    brandable: true, label: 'Markup', vibe: 'Ruled paper with hand-drawn marker circles and underlines pointing at the real UI. Feature explainers, "here is how it works".',
+    theme: 'light', palette: { bg: '#FBFBF7', bg2: '#F1F0E9', ink: '#15171C', muted: '#5D6270', accent: '#2B50E8', accent2: '#E8481C', card: '#FFFFFF', line: '#D9D8CF' },
+    fonts: { display: 'Inter', body: 'Inter', mono: 'IBM Plex Mono' }, display: { weight: 800, case: 'none', tracking: -0.02, align: 'left' },
+    background: 'ruled', grain: 0.03, vignette: false, hud: 'minimal', captions: 'clean', transition: 'wipe', card: { radius: 10, style: 'solid' }, letterbox: false, marker: true,
+    music: { genre: 'bright', bpm: 105, key: 2 },
+  },
+  chrome: {
+    label: 'Chrome', vibe: 'Y2K liquid metal: black, chrome-sheen caps, acid-lime accent, twinkling sparkles, glitch cuts. Consumer AI, creator and music tools, Gen-Z.',
+    theme: 'dark', palette: { bg: '#09090D', bg2: '#14141B', ink: '#F2F3F7', muted: '#A3A6B4', accent: '#C8FF3D', accent2: '#7CC8FF', card: '#17171F', line: '#2A2A35' },
+    fonts: { display: 'Unbounded', body: 'Manrope', mono: 'Space Mono' }, display: { weight: 700, case: 'upper', tracking: 0.01, align: 'center', chrome: true, scale: 0.8 },
+    background: 'sparkle', grain: 0.06, vignette: true, hud: 'tech', captions: 'karaoke', transition: 'glitch', card: { radius: 22, style: 'glass' }, letterbox: false,
+    music: { genre: 'synthwave', bpm: 140, key: 9 },
+  },
+  ledger: {
+    brandable: true, label: 'Ledger', vibe: 'Data journalism: warm newsprint, condensed headlines, mono kickers, axis lines and big counted numbers with their source. ROI, benchmarks, proof.',
+    theme: 'light', palette: { bg: '#F7F4EE', bg2: '#ECE7DD', ink: '#111418', muted: '#565B63', accent: '#0B7A6B', accent2: '#C2410C', card: '#FFFFFF', line: '#D6D0C4' },
+    fonts: { display: 'IBM Plex Sans Condensed', body: 'IBM Plex Sans', mono: 'IBM Plex Mono' }, display: { weight: 700, case: 'none', tracking: -0.01, align: 'left' },
+    background: 'baseline', grain: 0.03, vignette: false, hud: 'minimal', captions: 'mono', transition: 'slide', card: { radius: 2, style: 'outline' }, letterbox: false,
+    music: { genre: 'house', bpm: 118, key: 6 },
+  },
+  native: {
+    brandable: true, label: 'Native', vibe: 'Feels like a post, not an ad: white, system-like type, rounded cards, a phone-in-hand sway, swipe-up cuts and pill captions. Reels, TikTok, founder-voice ads.',
+    theme: 'light', palette: { bg: '#FFFFFF', bg2: '#F2F2F7', ink: '#111111', muted: '#6C6C70', accent: '#0A6CFF', accent2: '#FF2D55', card: '#FFFFFF', line: '#E5E5EA' },
+    fonts: { display: 'Inter', body: 'Inter', mono: 'JetBrains Mono' }, display: { weight: 700, case: 'none', tracking: 0, align: 'left' },
+    background: 'handheld', grain: 0, vignette: false, hud: 'none', captions: 'pill', transition: 'swipe', card: { radius: 24, style: 'soft' }, letterbox: false, sway: true,
+    music: { genre: 'lofi', bpm: 95, key: 1 },
   },
 };
 

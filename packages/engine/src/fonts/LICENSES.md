@@ -19,5 +19,9 @@ All fonts in this folder are open-source and redistributable. They are bundled s
 | IBM Plex Mono | SIL Open Font License 1.1 | IBM, via Google Fonts / @fontsource |
 | VT323 | SIL Open Font License 1.1 | Peter Hull, via Google Fonts / @fontsource |
 | DM Sans | SIL Open Font License 1.1 | Colophon, via Google Fonts / @fontsource |
+| Space Mono | SIL Open Font License 1.1 | Colophon, via Google Fonts / @fontsource |
+| Bowlby One | SIL Open Font License 1.1 | Vernon Adams, via Google Fonts / @fontsource |
+| IBM Plex Sans, IBM Plex Sans Condensed | SIL Open Font License 1.1 | IBM, via Google Fonts / @fontsource |
+| Manrope | SIL Open Font License 1.1 | Mikhail Sharanda, via Google Fonts / @fontsource |
 
 Full license text: https://openfontlicense.org

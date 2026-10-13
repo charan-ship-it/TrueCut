@@ -91,6 +91,12 @@ function css(S, fontBase) {
 .nm .cap{position:absolute;left:60px;right:60px;text-align:center;font-weight:650;font-size:36px;line-height:1.25;letter-spacing:-.01em;text-wrap:balance}
 .nm .cap.box span.ln{background:var(--cr);color:var(--bg);padding:4px 14px;box-decoration-break:clone;-webkit-box-decoration-break:clone;line-height:1.55}
 .nm .cap.mono{font-family:var(--fm);font-weight:500;font-size:32px;text-align:left}
+.nm .cap.pill span.ln{background:var(--a);color:var(--ai);padding:6px 20px;border-radius:18px;box-decoration-break:clone;-webkit-box-decoration-break:clone;line-height:1.6;font-weight:700}
+/* background-clip:text has to sit on each animated word: a transformed child drops out of its parent's clip */
+.nm .chromet .w{background:linear-gradient(175deg,#FFFFFF 0%,#E6E9F0 38%,#9AA1B2 50%,#F4F6FB 62%,#FFFFFF 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.nm .chromet{filter:drop-shadow(0 3px 10px rgba(0,0,0,.65))}
+.nm .chromet .w.acc{background:none;-webkit-text-fill-color:var(--a)}
+.nm .mk{background-image:linear-gradient(transparent 62%,rgba(var(--ar),.28) 62%,rgba(var(--ar),.28) 92%,transparent 92%);background-repeat:no-repeat;background-size:100% 100%}
 .nm .clip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nm .acc{color:var(--a)}
 .nm .it{font-style:italic}
@@ -161,10 +167,10 @@ export function mount(root, comp, opts = {}) {
   const segs = L.scenes.map(() => mk(mk(prog, 'div', '', { flex: '1', height: hudMode === 'minimal' ? '3px' : '4px', background: 'rgba(var(--ir),.14)', borderRadius: '2px', overflow: 'hidden' }), 'div', '', { height: '100%', width: '0%' }));
 
   // ── captions ──
-  const capCls = 'cap' + (S.captions === 'box' ? ' box' : S.captions === 'mono' ? ' mono' : '');
+  const capCls = 'cap' + (S.captions === 'box' ? ' box' : S.captions === 'mono' ? ' mono' : S.captions === 'pill' ? ' pill' : '');
   const caps = L.captions.map((c) => {
     const el = mk(capbox, 'div', capCls, { top: capY + 'px', opacity: 0 });
-    const host = S.captions === 'box' ? mk(el, 'span', 'ln') : el;
+    const host = S.captions === 'box' || S.captions === 'pill' ? mk(el, 'span', 'ln') : el;
     if (S.captions === 'mono') mk(host, 'span', '', { color: 'var(--a)' }, '&gt; ');
     return { ...c, el, ws: c.words.map((w) => [mk(host, 'span', 'w', null, esc(w.w) + ' '), w.t]) };
   });
@@ -196,7 +202,9 @@ export function mount(root, comp, opts = {}) {
       if (vis) { cur = i; b.e.style.clipPath = 'none'; b.e.style.transform = ''; b.e.style.filter = ''; b.r(t - b.s.start + b.off, b.s.dur + b.off); if (i > 0) T.enter(b.e, t - b.s.start, R); }
     });
     const gl = T.overlay(t, built.map((b) => b.s.start).slice(1), R);
-    cam.style.transform = `translate(${(R() - 0.5) * sh + (gl.x || 0)}px,${(R() - 0.5) * sh}px) scale(${(1 + 0.012 * Math.sin(t * 0.7)) * (gl.s || 1)})`;
+    // Native: the whole frame sways a little, like a phone held in the hand
+    const sw = S.sway ? { x: Math.sin(t * 1.3) * 3, y: Math.cos(t * 1.1) * 2, r: Math.sin(t * 0.7) * 0.4 } : { x: 0, y: 0, r: 0 };
+    cam.style.transform = `translate(${(R() - 0.5) * sh + (gl.x || 0) + sw.x}px,${(R() - 0.5) * sh + sw.y}px) rotate(${sw.r}deg) scale(${(1 + 0.012 * Math.sin(t * 0.7)) * (gl.s || 1)})`;
     cam.style.filter = gl.filter || '';
     let fl = gl.flash || 0;
     if (REV >= 0 && t >= L.revealAt && t < L.revealAt + 0.25) fl = Math.max(fl, (1 - pr(t, L.revealAt, L.revealAt + 0.25)) * 0.35);
@@ -221,7 +229,7 @@ export function mount(root, comp, opts = {}) {
       c.el.style.opacity = on ? eo(pr(t, c.start - 0.05, c.start + 0.15)) * (1 - pr(t, c.end + 0.35, c.end + 0.55)) : 0;
       if (on) c.ws.forEach(([sp, st]) => {
         const p = pr(t, st - 0.02, st + 0.1);
-        if (S.captions === 'karaoke') { const now = t >= st && t < st + 0.38; sp.style.opacity = 0.35 + 0.65 * p; sp.style.color = now ? 'var(--a)' : ''; sp.style.transform = now ? 'scale(1.08)' : ''; }
+        if (S.captions === 'karaoke') { const now = t >= st && t < st + 0.38; sp.style.opacity = 0.35 + 0.65 * p; sp.style.color = now ? 'var(--a)' : ''; sp.style.transformOrigin = '0 70%'; sp.style.transform = now ? 'scale(1.08)' : ''; }
         else if (S.captions === 'mono') sp.style.opacity = p > 0 ? 1 : 0;
         else sp.style.opacity = 0.32 + 0.68 * p;
       });
@@ -286,6 +294,60 @@ function buildBackground(bg, S, W, H, CC, seed) {
     const glow = mk(layer, 'div', 'ab', { inset: 0, background: `radial-gradient(ellipse at 50% 45%,rgba(var(--ar),.10),rgba(0,0,0,0) 65%)` });
     const bar = mk(layer, 'div', 'ab', { left: 0, right: 0, height: '120px', background: `linear-gradient(to bottom,rgba(var(--ar),0),rgba(var(--ar),.06),rgba(var(--ar),0))` });
     upd = (t) => { bar.style.top = ((t * 260) % (H + 240)) - 120 + 'px'; glow.style.opacity = 0.85 + 0.15 * Math.sin(t * 40); };
+  } else if (kind === 'aurora') {
+    // three soft colour fields on slow Lissajous paths, heavily blurred: depth without "AI blob" gloss
+    layer.style.filter = 'blur(70px)'; layer.style.inset = '-120px';
+    const cols = [`rgba(var(--ar),.30)`, P.accent2 + '44', 'rgba(42,59,255,.22)'];
+    const bl = cols.map((c2) => mk(layer, 'div', 'ab', { width: W * 0.75 + 'px', height: W * 0.75 + 'px', borderRadius: '50%', background: c2 }));
+    const ph = [0, 2.1, 4.2];
+    upd = (t, P_, beat) => bl.forEach((b, i) => { const cx = W * (0.25 + 0.25 * i) + Math.sin(t * 0.21 + ph[i]) * W * 0.18; const cy = H * (0.3 + 0.2 * ((i + 1) % 3)) + Math.cos(t * 0.17 + ph[i] * 1.3) * H * 0.12; b.style.left = cx - W * 0.375 + 120 + 'px'; b.style.top = cy - W * 0.375 + 120 + 'px'; b.style.opacity = 0.85 + 0.15 * beat; });
+  } else if (kind === 'halftone') {
+    // risograph dots in the accent, density swelling with a slow moving field; multiplied onto paper
+    const dots = mk(layer, 'div', 'ab', { inset: '-40px', backgroundImage: `radial-gradient(rgba(var(--ar),.42) 2.6px,transparent 3px)`, backgroundSize: '12px 12px', mixBlendMode: 'multiply' });
+    const dots2 = mk(layer, 'div', 'ab', { inset: '-40px', backgroundImage: `radial-gradient(${P.accent2}55 2px,transparent 2.4px)`, backgroundSize: '12px 12px', backgroundPosition: '6px 6px', mixBlendMode: 'multiply' });
+    upd = (t) => {
+      const a = (t * 14) % 360; const x = 50 + Math.sin(t * 0.3) * 30;
+      dots.style.maskImage = dots.style.webkitMaskImage = `radial-gradient(ellipse 70% 55% at ${x}% ${35 + Math.cos(t * 0.25) * 15}%,#000 0%,rgba(0,0,0,.25) 55%,transparent 80%)`;
+      dots2.style.maskImage = dots2.style.webkitMaskImage = `linear-gradient(${a}deg,transparent 30%,#000 70%,transparent 100%)`;
+    };
+  } else if (kind === 'bento') {
+    // a quiet keynote grid of rounded tiles behind the scene; one tile breathes in the accent
+    const cols = 4, rows = Math.round(H / (W / 4)), g = 16, tw = (W - g * (cols + 1)) / cols, th = (H - g * (rows + 1)) / rows;
+    const tiles = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) tiles.push(mk(layer, 'div', 'ab', { left: g + c * (tw + g) + 'px', top: g + r * (th + g) + 'px', width: tw + 'px', height: th + 'px', borderRadius: '28px', background: P.card, border: `1px solid ${P.line}`, opacity: 0.55 }));
+    upd = (t, P_, beat) => { const k = Math.floor(t / 1.6) % tiles.length; const R2 = rng(k + seed); tiles.forEach((el, i) => { el.style.background = i === Math.floor(R2() * tiles.length) ? `rgba(var(--ar),${0.07 + 0.05 * beat})` : P.card; }); };
+  } else if (kind === 'scraps') {
+    // torn paper scraps with tape, drifting a little: collage on kraft
+    const torn = (w, h, R3) => { const pts = []; const step = 6; for (let x = 0; x <= w; x += step) pts.push([x, (R3() - 0.5) * 6]); for (let y = 0; y <= h; y += step) pts.push([w + (R3() - 0.5) * 6, y]); for (let x = w; x >= 0; x -= step) pts.push([x, h + (R3() - 0.5) * 6]); for (let y = h; y >= 0; y -= step) pts.push([(R3() - 0.5) * 6, y]); return pts.map((q) => q.map((v) => v.toFixed(1)).join(',')).join(' '); };
+    const fills = [P.card, P.bg2, `rgba(var(--ar),.18)`, P.card, P.accent2 + '22'];
+    const scraps = fills.map((f, i) => { const w = 260 + R() * 360, h = 180 + R() * 300; const el = mk(layer, 'div', 'ab', { left: R() * (W - w) + 'px', top: (H / fills.length) * i + R() * 60 - 40 + 'px', width: w + 'px', height: h + 'px', transform: `rotate(${(R() - 0.5) * 14}deg)`, filter: 'drop-shadow(0 3px 0 rgba(0,0,0,.15))' });
+      el.innerHTML = `<svg width="${w + 8}" height="${h + 8}" style="position:absolute;left:-4px;top:-4px;overflow:visible"><polygon points="${torn(w, h, R)}" fill="${f}"/></svg>`;
+      mk(el, 'div', 'ab', { left: w / 2 - 50 + 'px', top: '-14px', width: '100px', height: '28px', background: 'rgba(255,248,220,.6)', transform: `rotate(${(R() - 0.5) * 10}deg)` });
+      return { el, r0: (R() - 0.5) * 14, ph: R() * 6 }; });
+    upd = (t) => { const k = Math.floor(t * 4); scraps.forEach((sc, i) => { const j = rng(k * 7 + i)(); sc.el.style.transform = `rotate(${sc.r0 + (j - 0.5) * 1.2}deg)`; }); };
+  } else if (kind === 'ruled') {
+    // lined notebook paper with a margin rule
+    layer.style.backgroundImage = `linear-gradient(to bottom,transparent 46px,${P.accent}22 46px,${P.accent}22 48px,transparent 48px)`; layer.style.backgroundSize = '100% 48px';
+    mk(layer, 'div', 'ab', { left: '96px', top: 0, bottom: 0, width: '2px', background: `${P.accent2}55` });
+    upd = (t) => { layer.style.backgroundPosition = `0 ${(t * 4) % 48}px`; };
+  } else if (kind === 'sparkle') {
+    // sparse four-point sparkles that twinkle, and slow rings: Y2K chrome night
+    const rings = [0, 1, 2].map(() => mk(layer, 'div', 'ab', { left: W / 2 + 'px', top: H * 0.45 + 'px', borderRadius: '50%', border: `1px solid ${P.line}` }));
+    const stars = Array.from({ length: 18 }, () => { const sz = 10 + R() * 26; const el = mk(layer, 'div', 'ab', { left: R() * W + 'px', top: R() * H + 'px', width: sz + 'px', height: sz + 'px', background: R() < 0.3 ? P.accent : P.ink, clipPath: 'polygon(50% 0,58% 42%,100% 50%,58% 58%,50% 100%,42% 58%,0 50%,42% 42%)' }); return { el, ph: R() * 10, sp: 0.6 + R() * 1.2 }; });
+    upd = (t) => {
+      rings.forEach((r, i) => { const d = ((t * 120 + i * 400) % 1200) + 100; r.style.width = r.style.height = d + 'px'; r.style.marginLeft = r.style.marginTop = -d / 2 + 'px'; r.style.opacity = String(Math.max(0, 0.6 - d / 1400)); });
+      stars.forEach((st) => { const v = Math.max(0, Math.sin(t * st.sp * 3 + st.ph)); st.el.style.transform = `scale(${v * v})`; });
+    };
+  } else if (kind === 'baseline') {
+    // newsprint: a faint baseline grid and a heavy rule up top, like a data desk chart page
+    layer.style.backgroundImage = `linear-gradient(to bottom,${ink(0.06)} 1px,transparent 1px)`; layer.style.backgroundSize = '100% 36px';
+    mk(layer, 'div', 'ab', { left: '64px', right: '64px', top: '58px', height: '6px', background: 'var(--cr)' });
+    mk(layer, 'div', 'ab', { left: '64px', right: '64px', top: '70px', height: '1px', background: 'var(--cr)' });
+    const ticks = Array.from({ length: 10 }, (_, i) => mk(layer, 'div', 'ab mono', { left: 64 + i * ((W - 128) / 9) + 'px', bottom: '40px', fontSize: '13px', color: ink(0.35) }, String(i * 10).padStart(2, '0')));
+    upd = () => { void ticks; };
+  } else if (kind === 'handheld') {
+    // a plain feed-white canvas; the sway itself is applied to the camera (S.sway)
+    layer.style.background = `linear-gradient(to bottom,${P.bg} 0%,${P.bg2} 100%)`;
   } else if (kind === 'dots') {
     layer.style.backgroundImage = `radial-gradient(${ink(0.13)} 1.6px,transparent 1.8px)`; layer.style.backgroundSize = '34px 34px';
     upd = (t) => { layer.style.backgroundPosition = `${(t * 6) % 34}px ${(t * 10) % 34}px`; };
@@ -308,6 +370,10 @@ function buildTransition(root, S, W, H) {
       else if (kind === 'slide') { const p = eo5(pr(lt, 0, 0.38)); if (p < 1) { e.style.transform = `translateX(${(1 - p) * 1080}px)`; e.style.filter = `blur(${(1 - p) * 8}px)`; } }
       else if (kind === 'cut') { const p = eo(pr(lt, 0, 0.25)); if (p < 1) e.style.transform = `scale(${1 + 0.08 * (1 - p)})`; }
       else if (kind === 'fade') { const p = eio(pr(lt, 0, 0.45)); if (p < 1) e.style.filter = `brightness(${0.2 + 0.8 * p})`; }
+      else if (kind === 'blur') { const p = eo(pr(lt, 0, 0.32)); if (p < 1) { e.style.transform = `translateY(${(1 - p) * 26}px) scale(${0.985 + 0.015 * p})`; e.style.filter = `blur(${(1 - p) * 12}px)`; } }
+      else if (kind === 'swipe') { const p = eo5(pr(lt, 0, 0.24)); if (p < 1) { e.style.transform = `translateY(${(1 - p) * 100}%)`; e.style.filter = `blur(${(1 - p) * 3}px)`; } }
+      else if (kind === 'stopmotion') { if (lt < 0.5) { const k = Math.floor(lt * 12); const r = rng(k + 3); e.style.transform = `translate(${(r() - 0.5) * 6}px,${(r() - 0.5) * 6}px) rotate(${(r() - 0.5) * 3}deg)`; } }
+      else if (kind === 'misregister') { const p = eo(pr(lt, 0, 0.3)); const x = 1.5 + (1 - p) * 6; e.style.filter = `drop-shadow(${x}px 0 0 rgba(var(--ar),.55)) drop-shadow(${-x}px 0 0 ${S.palette.accent2}66)`; }
     },
     overlay(t, cuts, R) {
       const out = {}; let near = null; for (const c of cuts) if (Math.abs(t - c) < 0.3) near = c;
@@ -326,6 +392,7 @@ function buildTransition(root, S, W, H) {
       else if (kind === 'zoom' && d >= 0 && d < 0.12) { out.flash = (1 - d / 0.12) * 0.16; }
       else if (kind === 'fade') { /* handled on enter */ }
       else if (kind === 'iris' && d >= 0 && d < 0.1) { out.flash = (1 - d / 0.1) * 0.06; }
+      else if (kind === 'stopmotion' && d >= 0 && d < 0.08) { out.flash = 0.18; }
       return out;
     },
   };
@@ -338,7 +405,8 @@ const fit = (len, base, min, per = 2.6, from = 18) => Math.round(cl(base - (len 
 function headlineBlock(e, lines, c, top, fs) {
   const al = c.S.display.align; const sc = c.S.display.scale || 1;
   const hd = mk(e, 'div', 'ab dsp', { left: '70px', right: '70px', top: top + 'px', textAlign: al, fontSize: Math.round(fs * sc) + 'px' });
-  const W = lines.map((l, i) => { const ws = words(mk(hd, 'div'), l); if (i === lines.length - 1 && ws.length) { const last = ws[ws.length - 1]; if (c.S.display.italicAccent) last.classList.add('it', 'acc'); } return ws; });
+  if (c.S.display.chrome) hd.classList.add('chromet'); // Chrome: liquid-metal fill on display type
+  const W = lines.map((l, i) => { const ws = words(mk(hd, 'div'), l); if (i === lines.length - 1 && ws.length) { const last = ws[ws.length - 1]; if (c.S.display.italicAccent) last.classList.add('it', 'acc'); if (c.S.marker) last.classList.add('mk'); } return ws; });
   return { hd, W };
 }
 
@@ -704,7 +772,7 @@ export const SCENES = {
       const words_ = ph.split(' '); const longest = Math.max(...words_.map((w) => w.length));
       const lines = []; for (const w of words_) { const l = lines[lines.length - 1]; if (l && (l + ' ' + w).length <= Math.max(8, longest)) lines[lines.length - 1] = l + ' ' + w; else lines.push(w); }
       const maxLen = Math.max(...lines.map((l) => l.length));
-      const kind = S.fonts.display; const cw = kind === 'Anton' ? 0.42 : kind === 'VT323' ? 0.5 : kind === 'Archivo Black' ? 0.68 : kind === 'Unbounded' ? 0.72 : 0.58;
+      const kind = S.fonts.display; const cw = (kind === 'Anton' ? 0.42 : kind === 'VT323' ? 0.5 : kind === 'Archivo Black' ? 0.68 : kind === 'Unbounded' ? 0.72 : kind === 'Bowlby One' ? 0.74 : kind === 'IBM Plex Sans Condensed' ? 0.46 : 0.58) * (S.display.case === 'upper' && kind !== 'Anton' && kind !== 'VT323' ? 1.12 : 1);
       const fs = Math.round(cl(940 / (maxLen * cw), 90, Math.min(360, (H * 0.5) / lines.length)));
       const el = mk(e, 'div', 'ab dsp', { left: '50px', right: '50px', textAlign: S.display.align === 'left' ? 'left' : 'center', fontSize: fs + 'px', lineHeight: 0.92, top: CC - (lines.length * fs * 0.92) / 2 + 'px', opacity: 0 }, lines.map(esc).join('<br>'));
       return el;

@@ -10,6 +10,7 @@ import { toJpeg } from '../render/media';
 import { verifyFact, numbersIn, checkScenes } from '@truecut/shared/facts';
 import type { Fact, Project, Question, Scene, Visual } from '@truecut/shared/types';
 import { SCENE_TYPES } from '@truecut/engine/timeline.js';
+import { projectLayout } from '@truecut/shared/compose';
 
 type Log = (msg: string, pct?: number) => void;
 
@@ -243,8 +244,16 @@ export async function storyboard(pid: string, log: Log) {
     }
   }
   const left = checkScenes(await getProject(pid)).filter((i) => i.level === 'error').length;
-  { const fp = await getProject(pid); const words = fp.scenes.reduce((a, s) => a + (s.vo?.text || '').split(/\s+/).filter(Boolean).length, 0); const budget = Math.round(fp.intake.length * 2.2);
-    if (words > budget * 1.15 && config.anthropicKey) { log(`Voice is ${words} words for a ${fp.intake.length}s target — tightening…`, 95); try { await tighten(pid, budget); } catch (e: any) { log('Tightening failed: ' + e.message); } } }
+  // Fit the target length: lay the cut out with a cautious speaking rate (real voices run slower than the
+  // engine's preview estimate) and tighten the lines until it fits, at most twice.
+  if (config.anthropicKey) for (let pass = 0; pass < 2; pass++) {
+    const fp = await getProject(pid); const est = plannedDuration(fp); const target = fp.intake.length;
+    if (est <= target * 1.05) break;
+    const words = fp.scenes.reduce((a, s) => a + (s.vo?.text || '').split(/\s+/).filter(Boolean).length, 0);
+    const budget = Math.max(8, Math.floor(words * (target / est) * 0.95));
+    log(`About ${est.toFixed(0)}s for a ${target}s target: tightening the voice to ${budget} words…`, 95);
+    try { await tighten(pid, budget); } catch (e: any) { log('Tightening failed: ' + e.message); break; }
+  }
   log(`Storyboard ready: ${(out.scenes || []).length} scenes${left ? ` — ${left} fact issue(s) need you` : ' — every number traced'}`, 100);
 }
 
@@ -298,6 +307,14 @@ export async function reviseScene(pid: string, sceneId: string, instruction: str
     const k = pp.scenes.findIndex((s) => s.id === sceneId);
     if (k >= 0) { const n = normalizeScene(pp, { ...out, id: sceneId }); if (n.vo && sc.vo && n.vo.text === sc.vo.text) n.vo = sc.vo; pp.scenes[k] = n; }
   });
+}
+
+/** Seconds per spoken word we plan with: measured ElevenLabs narration is ~2.4 words/s. */
+const PLAN_WPS = 2.4;
+/** How long the cut will run once voiced, before any voice is recorded. Exported for tests. */
+export function plannedDuration(p: Project) {
+  const scenes = p.scenes.map((s) => (s.vo?.text && !s.vo.duration ? { ...s, vo: { ...s.vo, duration: s.vo.text.trim().split(/\s+/).filter(Boolean).length / PLAN_WPS + 0.25 } } : s));
+  return projectLayout({ ...p, scenes } as Project).duration;
 }
 
 /** Shortens voice lines to fit the word budget for the target length (one Claude call). */

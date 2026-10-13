@@ -9,7 +9,7 @@ import type { Attachment } from '@truecut/shared/detect';
 
 const STARTERS = [
   { l: 'aixccelerate.com', t: 'https://aixccelerate.com' },
-  { l: 'A repo on this machine', t: '../agent-nick' },
+  { l: 'A repo on this machine', t: '../agent-nick', local: true },
   { l: 'Edit a founder talk', t: '', file: true },
   { l: 'Paste a call transcript', t: '', focus: true },
 ];
@@ -37,10 +37,10 @@ export default function Home() {
         <div className="eyebrow"><span className="rec" />Nick is ready to direct</div>
         <h1 className="headline serif">Drop a link.<br /><i>Get a film.</i></h1>
         <p className="lede">Nick reads your product, checks every fact against the source, pitches you three ways to tell it, then writes, scores and renders a motion-graphics ad. All in one conversation.</p>
-        <Composer onSend={send} busy={busy} options={opts} setOptions={setOpts} autoFocus placeholder="Paste your website, a repo path, or describe the video you want…" />
+        <Composer onSend={send} busy={busy} options={opts} setOptions={setOpts} autoFocus placeholder={me?.local ? 'Paste your website, a repo path, or describe the video you want…' : 'Paste your website, upload files, or describe the video you want…'} />
         {err && <div className="issue error" style={{ marginTop: 12 }}>{err}</div>}
         <div className="starters">
-          {STARTERS.map((s) => <button key={s.l} className="chip" onClick={() => { if ((s as any).file) { setOpts({ ...opts, kind: 'talk' }); document.getElementById('nm-attach')?.click(); return; } if (s.focus) { document.getElementById('nm-composer')?.focus(); return; } send(s.t, [], []); }}>{s.l}</button>)}
+          {STARTERS.filter((s) => !(s as any).local || me?.local).map((s) => <button key={s.l} className="chip" onClick={() => { if ((s as any).file) { setOpts({ ...opts, kind: 'talk' }); document.getElementById('nm-attach')?.click(); return; } if (s.focus) { document.getElementById('nm-composer')?.focus(); return; } send(s.t, [], []); }}>{s.l}</button>)}
         </div>
       </section>
       <section className="section">

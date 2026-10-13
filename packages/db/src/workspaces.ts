@@ -32,7 +32,8 @@ export async function upsertUser(u: { email: string; name?: string | null; image
     // A name the person chose in Settings is kept. Google's name only replaces one we made up from the
     // address; a sign-in that knows no name or picture (an email link) keeps what is saved.
     .onConflictDoUpdate({ target: users.email, set: {
-      name: u.name ? sql`case when ${users.name} in (${email.split('@')[0]}, ${nameFromEmail(email)}, '') then ${u.name} else ${users.name} end` : sql`${users.name}`,
+      name: u.name ? sql`case when ${users.name} in (${email.split('@')[0]}, ${nameFromEmail(email)}, '') then ${u.name} else ${users.name} end`
+        : sql`case when ${users.name} in (${email.split('@')[0]}, '') then ${nameFromEmail(email)} else ${users.name} end`, // older accounts named "charan"
       image: u.image ? u.image : sql`${users.image}`, lastSeenAt: new Date(),
     } }).returning();
   const first = (await db().select().from(memberships).where(eq(memberships.workspaceId, ws)).limit(1)).length === 0;

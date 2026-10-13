@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ok, route, body } from '@/lib/http';
 import { authEnabled, roleOf } from '@/lib/auth';
 import { resolveRunContext, getUser, setUserName, nameFromEmail } from '@truecut/db';
+import { pathsAllowed } from '@truecut/core/sources/ingest';
 export const dynamic = 'force-dynamic';
 
 // The name comes from the database, not the session cookie, so a change in Settings shows straight away.
@@ -10,7 +11,7 @@ export const GET = route(async (_r: Request, _c: any, user) => {
   const row = user.id ? await getUser(user.id) : null;
   // accounts made before names were guessed from the address have the bare address prefix ("charan")
   const name = row?.name && row.name !== user.email.split('@')[0] ? row.name : nameFromEmail(user.email);
-  return ok({ user: { id: user.id, name: user.id ? name : user.name, email: user.email, image: row?.image ?? user.image }, auth: authEnabled(), role: await roleOf(user), keys: { anthropic: ctx.keys?.anthropicSource, elevenlabs: ctx.keys?.elevenSource } });
+  return ok({ user: { id: user.id, name: user.id ? name : user.name, email: user.email, image: row?.image ?? user.image }, auth: authEnabled(), local: pathsAllowed(), role: await roleOf(user), keys: { anthropic: ctx.keys?.anthropicSource, elevenlabs: ctx.keys?.elevenSource } });
 });
 
 export const PATCH = route(async (req: Request, _c: any, user) => {

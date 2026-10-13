@@ -8,7 +8,7 @@ import { DIRECTIONS } from '@truecut/engine/styles.js';
 import { signOut } from 'next-auth/react';
 
 type Row = { id: string; name: string; stage: string; updatedAt: string; scenes: number; renders: number; thumb: string | null; video: string | null; style: string; favorite: boolean; busy: boolean; length: number; last: string; creator?: { name: string; image?: string | null } | null };
-type Me = { user: { id: string; name: string; email: string; image?: string | null }; auth: boolean; role?: string; keys?: { anthropic?: string; elevenlabs?: string } };
+type Me = { user: { id: string; name: string; email: string; image?: string | null }; auth: boolean; local?: boolean; role?: string; keys?: { anthropic?: string; elevenlabs?: string } };
 const Shared = createContext<{ projects: Row[] | null; refresh: () => void; health: any; me: Me | null }>({ projects: null, refresh: () => {}, health: null, me: null });
 export const useShared = () => useContext(Shared);
 

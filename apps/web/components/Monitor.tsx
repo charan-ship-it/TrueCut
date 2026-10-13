@@ -64,7 +64,7 @@ export default function Monitor({ p, comp, lay: lay0, style, bindSeek, issues, o
             <div className="scanline" />
             <div style={{ textAlign: 'center', padding: 30, position: 'relative' }}>
               <div className="serif" style={{ fontSize: 30, lineHeight: 1.1, marginBottom: 8 }}>{busy ? <>Nick is <i>reading</i></> : <>The monitor lights up<br /><i>when the cut is ready</i></>}</div>
-              <div className="small muted">{p.sources.length ? `${p.sources.length} source${p.sources.length > 1 ? 's' : ''} · ${p.facts.length} facts · ${p.visuals.length} visuals` : 'Drop a link in the chat to begin.'}</div>
+              <div className="small muted">{p.sources.length ? `${p.sources.length} source${p.sources.length > 1 ? 's' : ''} · ${p.facts.length} facts · ${p.visuals.filter((v) => v.use).length} usable visuals` : 'Drop a link in the chat to begin.'}</div>
             </div>
           </div>
         )}

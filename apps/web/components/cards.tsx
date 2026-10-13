@@ -53,11 +53,12 @@ function Progress({ c }: P) {
 function Sources({ c, ctx }: P) {
   const p = ctx.p;
   const srcs = p.sources.filter((s) => !c.ids?.length || c.ids.includes(s.id));
-  const vis = p.visuals.filter((v) => !c.ids?.length || c.ids.includes(v.sourceId || '')).slice(0, 12);
+  const allVis = p.visuals.filter((v) => !c.ids?.length || c.ids.includes(v.sourceId || ''));
+  const vis = allVis.slice(0, 12); const usable = allVis.filter((v) => v.use).length;
   if (!srcs.length) return null;
   return (
     <div className="ccard">
-      <div className="hd"><span className="mono">What I read</span><span className="grow" /><span className="tc xs">{srcs.length} source{srcs.length > 1 ? 's' : ''} · {vis.length} visual{vis.length === 1 ? '' : 's'}</span></div>
+      <div className="hd"><span className="mono">What I read</span><span className="grow" /><span className="tc xs">{srcs.length} source{srcs.length > 1 ? 's' : ''} · {usable} usable visual{usable === 1 ? '' : 's'}{allVis.length > usable ? ` of ${allVis.length}` : ''}</span></div>
       <div className="bd col" style={{ gap: 0 }}>
         {srcs.map((s) => (
           <div key={s.id} className="srcrow">

@@ -7,11 +7,11 @@ import { stageLabel, useShared } from './Shell';
 import { DIRECTIONS } from '@truecut/engine/styles.js';
 
 export default function VideoGrid({ projects, limit, filter = 'all', q = '' }: { projects: any[] | null; limit?: number; filter?: string; q?: string }) {
-  const { refresh } = useShared();
+  const { refresh, me } = useShared();
   if (projects === null) return <div className="vgrid">{[0, 1, 2, 3].map((i) => <div key={i} className="vcard"><div className="frame" style={{ background: 'linear-gradient(90deg,var(--panel),var(--panel2),var(--panel))', backgroundSize: '200% 100%', animation: 'shimmer 1.6s infinite' }} /></div>)}</div>;
   let list = projects.filter((p) => (filter === 'rendered' ? p.renders > 0 : filter === 'progress' ? !p.renders : filter === 'fav' ? p.favorite : true)).filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase()));
   if (limit) list = list.slice(0, limit);
-  if (!list.length) return <div className="empty" style={{ padding: 40 }}><div className="serif" style={{ fontSize: 26, color: 'var(--ink)', marginBottom: 6 }}>{projects.length ? 'Nothing here yet' : <>Your first film is <i>one link</i> away</>}</div><div className="small">{projects.length ? 'Try another filter.' : 'Paste a website above, or run npm run seed:demo for the Agent Nick example.'}</div></div>;
+  if (!list.length) return <div className="empty" style={{ padding: 40 }}><div className="serif" style={{ fontSize: 26, color: 'var(--ink)', marginBottom: 6 }}>{projects.length ? 'Nothing here yet' : <>Your first film is <i>one link</i> away</>}</div><div className="small">{projects.length ? 'Try another filter.' : me?.local ? 'Paste a website above, or run npm run seed:demo for the Agent Nick example.' : 'Paste a website above to make the first one.'}</div></div>;
   return <div className="vgrid">{list.map((p, i) => <Card key={p.id} p={p} i={i} onFav={async () => { await api(`/api/projects/${p.id}`, { method: 'PATCH', json: { favorite: !p.favorite } }); refresh(); }} />)}</div>;
 }
 

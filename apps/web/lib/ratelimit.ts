@@ -9,6 +9,7 @@ export const LIMITS = {
   chat: { n: 30, perMs: 60_000 },       // Nick turns
   heavy: { n: 20, perMs: 60_000 },      // renders, voice, analyse
   upload: { n: 120, perMs: 60_000 },    // captures and uploads
+  skills: { n: 30, perMs: 60_000 },     // creating / importing team skills
   keys: { n: 10, perMs: 60_000 },       // saving / testing API keys
   read: { n: 600, perMs: 60_000 },
   signinIp: { n: 10, perMs: 600_000 },  // sign-in link requests per IP

@@ -52,6 +52,7 @@ Creative rules (non-negotiable):
 export { callTool } from '../system/claude';
 import { callTool } from '../system/claude';
 import { MissingKey } from '../system/errors';
+import { chooseSkills, skillBlock } from '../skills/skills';
 
 async function imageBlocks(p: Project, max = 8) {
   const pick = p.visuals.filter((v) => v.use).slice(0, max);
@@ -216,10 +217,13 @@ export async function storyboard(pid: string, log: Log) {
   const p = await getProject(pid);
   let out: any;
   if (config.anthropicKey) {
+    const picked = await chooseSkills(pid).catch(() => null);
+    if (picked) log(`Following your team's skills: ${picked.names.join(', ')}`, 18);
+    const skills = await skillBlock(pid, 'storyboard').catch(() => '');
     log('Writing the brief and storyboard with Claude…', 20);
     out = await callTool<any>({
       model: config.creativeModel, maxTokens: 16000,
-      system: `You are an award-winning motion designer and senior B2B marketer. You write 15-45 second motion-graphics ads for LinkedIn and Instagram that feel alive every second, built ONLY from verified product reality. You think like a product manager (one clear proposition), a copywriter (spoken lines that land) and an editor (beats on a 120 BPM grid).\n${RULES}\n${SCENE_SPEC}`,
+      system: `You are an award-winning motion designer and senior B2B marketer. You write 15-45 second motion-graphics ads for LinkedIn and Instagram that feel alive every second, built ONLY from verified product reality. You think like a product manager (one clear proposition), a copywriter (spoken lines that land) and an editor (beats on a 120 BPM grid).\n${RULES}\n${SCENE_SPEC}${skills}`,
       tool: STORY_TOOL,
       content: [{ type: 'text', text: storyContext(p) + '\n\nWrite the storyboard now via record_storyboard.' }],
     });
@@ -299,7 +303,7 @@ export async function reviseScene(pid: string, sceneId: string, instruction: str
   if (!config.anthropicKey) throw new MissingKey('anthropic', 'Revising a scene');
   const out = await callTool<any>({
     model: config.creativeModel, maxTokens: 4000,
-    system: `You are the motion designer on this ad. Revise ONE scene per the instruction. Keep the scene type unless the instruction asks to change it.\n${RULES}\n${SCENE_SPEC}`,
+    system: `You are the motion designer on this ad. Revise ONE scene per the instruction. Keep the scene type unless the instruction asks to change it.\n${RULES}\n${SCENE_SPEC}${await skillBlock(pid, 'storyboard', p).catch(() => '')}`,
     tool: { name: 'record_scene', description: 'The revised scene', input_schema: STORY_TOOL.input_schema.properties.scenes.items },
     content: [{ type: 'text', text: `${storyContext(p)}\n\nFULL STORYBOARD (for context):\n${p.scenes.map((s, k) => `${k + 1}. [${s.type}] ${s.vo?.text || ''}`).join('\n')}\n\nSCENE TO REVISE:\n${JSON.stringify({ type: sc.type, vo: sc.vo?.text, caption: sc.caption, status: sc.status, props: sc.props, facts: sc.facts })}\n\nINSTRUCTION: ${instruction}` }],
   });

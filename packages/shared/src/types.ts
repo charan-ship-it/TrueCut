@@ -182,6 +182,7 @@ export const Project = z.object({
   talk: Talk.default({}),
   cast: Cast.default({}),
   chat: z.array(ChatMsg).default([]),
+  skills: z.object({ ids: z.array(z.string()).default([]), decided: z.boolean().default(false), why: z.string().default('') }).default({}),   // team skills this project uses
   kind: z.string().default('ad'),                  // ad | explainer | launch | social
   favorite: z.boolean().default(false),
   agentBusy: z.boolean().default(false),

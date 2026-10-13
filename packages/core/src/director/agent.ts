@@ -20,6 +20,7 @@ import { ffmpeg } from '../render/media';
 import { checkScenes } from '@truecut/shared/facts';
 import { defineHandler, enqueue, isBusy, type Log } from '@truecut/queue';
 import { DIRECTIONS, CAPTIONS, CAPTION_STYLES } from '@truecut/engine/styles.js';
+import { chooseSkills, skillBlock, projectSkills, toggleSkill } from '../skills/skills';
 import type { Angle, ChatMsg, FormatId, Project } from '@truecut/shared/types';
 
 import { detectSources, type Attachment } from '@truecut/shared/detect';
@@ -275,10 +276,13 @@ async function proposeAngles(pid: string): Promise<Angle[]> {
   const facts = p.facts.filter((f) => f.approved).slice(0, 40).map((f) => `${f.id} [${f.kind}] ${f.statement}`).join('\n');
   const qa = p.questions.map((q) => `Q: ${q.question}\nA: ${q.answer || q.suggested}`).join('\n');
   if (config.anthropicKey) {
+    const picked = await chooseSkills(pid).catch(() => null);
+    if (picked) await post(pid, { role: 'nick', text: `Following your team's skills on this one: ${picked.names.map((n) => `**${n}**`).join(', ')}.${picked.why ? ' ' + picked.why : ''} Say “drop the ${picked.names[0]} skill” to leave one out.` });
+    const skills = await skillBlock(pid, 'angles').catch(() => '');
     try {
       const out = await callTool<any>({
         model: config.creativeModel, maxTokens: 3000,
-        system: `You are a creative director. Propose three angles for a ${p.intake.length}s motion-graphics ad that are GENUINELY different from each other — different emotional route, different structure, different look. Hooks must be built only from the facts listed (no invented numbers). Directions available:\n${Object.entries(DIRECTIONS).map(([k, d]: any) => `- ${k}: ${d.vibe}`).join('\n')}\nPick a different direction for each angle.`,
+        system: `You are a creative director. Propose three angles for a ${p.intake.length}s motion-graphics ad that are GENUINELY different from each other — different emotional route, different structure, different look. Hooks must be built only from the facts listed (no invented numbers). Directions available:\n${Object.entries(DIRECTIONS).map(([k, d]: any) => `- ${k}: ${d.vibe}`).join('\n')}\nPick a different direction for each angle.${skills}`,
         tool: ANGLE_TOOL,
         content: [{ type: 'text', text: `Product: ${p.intake.productName} — ${p.intake.oneLiner}\nAudience: ${p.intake.audience}\nGoal/CTA: ${p.intake.goal} / ${p.intake.cta}\nTone: ${p.intake.tone}\n\n${qa}\n\nFACTS\n${facts}` }],
       });
@@ -315,6 +319,19 @@ async function setCaptionStyle(pid: string, cap: string) {
   if (!CAPTIONS.includes(cap)) throw new Error('Unknown caption style');
   await updateProject(pid, (p) => { p.style = { ...(p.style || {}), captions: cap }; });
   await post(pid, { role: 'nick', text: cap === 'none' ? 'Captions are off. The preview has updated.' : `Captions are now **${cap}**: ${CAPTION_STYLES[cap]} The preview has updated.`, replies: ['Render it', 'Captions: outline', 'Captions: highlight'] });
+}
+
+/** Add, drop or list the team skills this project follows. */
+async function skillAction(pid: string, act: string, name?: string) {
+  if (act === 'list_skills' || !name) {
+    const { on, available } = await projectSkills(pid);
+    if (!on.length && !available.length) { await post(pid, { role: 'nick', text: 'Your team has no skills yet. Add one in **Settings → Skills**: a name, one line on when to use it, and the instructions (or import a SKILL.md). I’ll pick the ones that fit each project.' }); return; }
+    await post(pid, { role: 'nick', text: `${on.length ? `Following: ${on.map((s) => `**${s.name}**`).join(', ')}.` : 'Not following any team skills on this project.'}${available.length ? ` Also available: ${available.map((s) => `${s.name} (${s.description.slice(0, 80)})`).join('; ')}.` : ''}`, replies: available.slice(0, 2).map((s) => `Use the ${s.name} skill`) });
+    return;
+  }
+  const s = await toggleSkill(pid, name, act === 'use_skill');
+  if (!s) { await post(pid, { role: 'nick', text: `I couldn't find a team skill called “${name}”. Type /skills to see them.` }); return; }
+  await post(pid, { role: 'nick', text: act === 'use_skill' ? `I'll follow **${s.name}** from now on in this project. It applies to what I write next; say “redo the storyboard” to apply it to what's there.` : `Dropped **${s.name}** for this project.`, replies: act === 'use_skill' ? ['Redo the storyboard', 'Render it'] : [] });
 }
 
 /** Match a typed caption-style request: "captions highlight", "caption style: outline", "use karaoke captions". */
@@ -403,7 +420,8 @@ const DECIDE_TOOL = {
   input_schema: { type: 'object', required: ['reply', 'actions'], properties: {
     reply: { type: 'string', description: 'short, warm reply in plain language (1-2 sentences). Say what you are about to do.' },
     actions: { type: 'array', items: { type: 'object', required: ['do'], properties: {
-      do: { type: 'string', enum: ['revise_scene', 'restoryboard', 'set_length', 'set_brief', 'set_direction', 'propose_angles', 'render', 'delete_scene', 'set_layout', 'set_captions', 'set_caption_style', 'recast', 'none'] },
+      do: { type: 'string', enum: ['revise_scene', 'restoryboard', 'set_length', 'set_brief', 'set_direction', 'propose_angles', 'render', 'delete_scene', 'set_layout', 'set_captions', 'set_caption_style', 'use_skill', 'drop_skill', 'list_skills', 'recast', 'none'] },
+      skill: { type: 'string', description: 'for use_skill / drop_skill: the team skill name' },
       captionStyle: { type: 'string', enum: CAPTIONS, description: 'for set_caption_style: how the on-screen captions look' },
       layout: { type: 'string', enum: ['split', 'overlay'] }, captions: { type: 'boolean' },
       scene: { type: 'number', description: '1-based scene number for revise/delete' },
@@ -431,9 +449,12 @@ async function interpret(pid: string, text: string, jobId: string) {
   const quick = rules(text, p);
   let plan: { reply: string; actions: any[] } | null = quick;
   if (!plan && config.anthropicKey) {
+    const sk = await projectSkills(pid).catch(() => ({ on: [], available: [] }));
+    const skillsInfo = sk.on.length || sk.available.length ? ` Team skills (saved instructions; use_skill / drop_skill / list_skills when the user asks about them): in use: ${sk.on.map((x) => x.name).join(', ') || 'none'}; available: ${sk.available.map((x) => `${x.name} (${x.description.slice(0, 120)})`).join('; ') || 'none'}.` : '';
+    const skills = await skillBlock(pid, 'chat', p).catch(() => '');
     plan = await callTool<any>({
       model: config.model, maxTokens: 1500,
-      system: `You are Nick, the director inside TrueCut, a tool that turns real product sources into motion-graphics video ads. Map the user's message to actions. Never invent facts. If they ask for something general ("punchier", "more energy"), revise the relevant scenes or restoryboard with that instruction. Anything about the VOICE(S), narrator, accent, a second voice or the music/score → recast with their words as the instruction. Directions: ${Object.entries(DIRECTIONS).map(([k, d]: any) => `${k} (${d.label})`).join(', ')}. Caption styles (set_caption_style): ${Object.entries(CAPTION_STYLES).map(([k, d]) => `${k}: ${d}`).join('; ')}.`,
+      system: `You are Nick, the director inside TrueCut, a tool that turns real product sources into motion-graphics video ads. Map the user's message to actions. Never invent facts. If they ask for something general ("punchier", "more energy"), revise the relevant scenes or restoryboard with that instruction. Anything about the VOICE(S), narrator, accent, a second voice or the music/score → recast with their words as the instruction. Directions: ${Object.entries(DIRECTIONS).map(([k, d]: any) => `${k} (${d.label})`).join(', ')}. Caption styles (set_caption_style): ${Object.entries(CAPTION_STYLES).map(([k, d]) => `${k}: ${d}`).join('; ')}.${skillsInfo}${skills}`,
       tool: DECIDE_TOOL,
       content: [{ type: 'text', text: `Stage: ${p.stage}. Direction: ${p.style?.preset}. Length target: ${p.intake.length}s.\nStoryboard:\n${p.scenes.map((s, i) => `${i + 1}. [${s.type}] ${s.vo?.text || ''}`).join('\n') || '(none yet)'}\n\n${recentChat(p)}User: ${text}` }],
     });
@@ -449,6 +470,7 @@ async function interpret(pid: string, text: string, jobId: string) {
     if (ac.do === 'set_brief' && ac.brief) { await updateProject(pid, (pp) => { Object.assign(pp.intake, ac.brief); }); changed = true; }
     if (ac.do === 'set_direction' && ac.preset) { await setDirection(pid, ac.preset, jobId, true); }
     if (ac.do === 'set_caption_style' && ac.captionStyle) await setCaptionStyle(pid, ac.captionStyle);
+    if (ac.do === 'use_skill' || ac.do === 'drop_skill' || ac.do === 'list_skills') await skillAction(pid, ac.do, ac.skill);
     if (ac.do === 'propose_angles') { const angles = await proposeAngles(pid); await updateProject(pid, (pp) => { pp.angles = angles; }); await post(pid, { role: 'nick', text: 'Fresh angles:', cards: [{ kind: 'angles' }] }); }
     if (ac.do === 'restoryboard') { if (ac.instruction) await updateProject(pid, (pp) => { pp.intake.mustSay = [pp.intake.mustSay, ac.instruction].filter(Boolean).join(' · '); }); restory = true; }
     if (ac.do === 'delete_scene' && ac.scene) { await updateProject(pid, (pp) => { pp.scenes.splice(ac.scene - 1, 1); pp.audioHash = undefined; }); changed = true; }
@@ -534,6 +556,9 @@ async function recast(pid: string, instruction: string, jobId: string) {
 /** Cheap deterministic intents (work without an AI key). */
 function rules(text: string, p: Project): { reply: string; actions: any[] } | null {
   const t = text.trim().toLowerCase();
+  if (/^\/skills$|^(which|what) skills\b/.test(t)) return { reply: '', actions: [{ do: 'list_skills' }] };
+  const sk = t.match(/^\/skill\s+(off\s+)?([\w-]+)$/) || t.match(/^(?:use|apply|follow)\s+(?:the\s+)?([\w-]+)\s+skill$/) || t.match(/^(drop|remove|stop using)\s+(?:the\s+)?([\w-]+)\s+skill$/);
+  if (sk) { const off = /^\/skill\s+off|^(drop|remove|stop)/.test(t); return { reply: '', actions: [{ do: off ? 'drop_skill' : 'use_skill', skill: sk[sk.length - 1] }] }; }
   const cap = captionStyleFrom(t);
   if (cap && !/\b(on|off)\b/.test(t)) return { reply: '', actions: [{ do: 'set_caption_style', captionStyle: cap }] };
   const dir = directionFrom(t);

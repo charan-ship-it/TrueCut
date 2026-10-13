@@ -4,8 +4,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '../../components/api';
 import { I } from '../../components/icons';
 
-type Tab = 'profile' | 'keys' | 'models' | 'usage' | 'extension';
-const TABS: [Tab, string][] = [['profile', 'Profile'], ['keys', 'API keys'], ['models', 'Models & budget'], ['usage', 'Usage'], ['extension', 'Capture extension']];
+type Tab = 'profile' | 'keys' | 'models' | 'skills' | 'usage' | 'extension';
+const TABS: [Tab, string][] = [['profile', 'Profile'], ['keys', 'API keys'], ['models', 'Models & budget'], ['skills', 'Skills'], ['usage', 'Usage'], ['extension', 'Capture extension']];
 
 export default function SettingsPage() { return <Suspense fallback={null}><Settings /></Suspense>; }
 
@@ -26,6 +26,7 @@ function Settings() {
           : tab === 'profile' ? <Profile />
           : tab === 'keys' ? <Keys s={s} reload={load} />
           : tab === 'models' ? <Models s={s} setS={setS} />
+          : tab === 'skills' ? <Skills />
           : tab === 'usage' ? <Usage />
           : <Extension />}
       </div>
@@ -300,6 +301,93 @@ function Extension() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ───────── team skills ─────────
+const EXAMPLES = [
+  { name: 'brand-voice', description: 'Use for every video for our company: how we sound, words we use and avoid.', body: '# Brand voice\n\n- Plain, confident, a little dry. Short sentences.\n- Say "teams", never "users". Say "set up", never "onboard".\n- No exclamation marks. No "revolutionary", "game-changing" or "seamless".\n- End on what the viewer can do next, in their words.' },
+  { name: 'linkedin-hooks', description: 'Use for LinkedIn ads aimed at B2B buyers: how to write the first line and the hook.', body: '# LinkedIn hooks\n\n1. The first spoken line names a specific pain the buyer has this week, in under 8 words.\n2. Put the strongest real number from the facts in the first 3 seconds if there is one.\n3. Never open with the product name. Reveal it after the problem lands.\n4. Prefer a question or a contrast ("Before / after") over a statement.' },
+];
+type Sk = { id: string; name: string; description: string; body: string; stages: string[]; always: boolean; enabled: boolean; source: string; createdBy: string | null; mine: boolean };
+const blank = { name: '', description: '', body: '', stages: [] as string[], always: false };
+
+function Skills() {
+  const [d, setD] = useState<{ items: Sk[]; stages: { id: string; label: string }[]; limits: any } | null>(null);
+  const [err, setErr] = useState(''); const [edit, setEdit] = useState<(typeof blank & { id?: string }) | null>(null); const [busy, setBusy] = useState(false);
+  const load = () => api('/api/skills').then(setD).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, []);
+  const save = async () => {
+    if (!edit) return; setBusy(true); setErr('');
+    try { const { id, ...v } = edit; await api(id ? `/api/skills/${id}` : '/api/skills', { method: id ? 'PATCH' : 'POST', json: v }); setEdit(null); load(); }
+    catch (e: any) { setErr(e.message); }
+    setBusy(false);
+  };
+  const patch = async (k: Sk, v: any) => { setErr(''); try { await api(`/api/skills/${k.id}`, { method: 'PATCH', json: v }); load(); } catch (e: any) { setErr(e.message); } };
+  const remove = async (k: Sk) => { if (!window.confirm(`Delete the ${k.name} skill? Projects using it stop following it.`)) return; try { await api(`/api/skills/${k.id}`, { method: 'DELETE' }); load(); } catch (e: any) { setErr(e.message); } };
+  const importFiles = async (files: FileList | null) => {
+    if (!files?.length) return; setBusy(true); setErr(''); const bad: string[] = [];
+    for (const f of Array.from(files)) {
+      try { await api('/api/skills', { json: { markdown: await f.text(), filename: f.name } }); } catch (e: any) { bad.push(`${f.name}: ${e.message}`); }
+    }
+    if (bad.length) setErr(bad.join(' · '));
+    setBusy(false); load();
+  };
+  const download = (k: Sk) => {
+    const fm = `---\nname: ${k.name}\ndescription: ${JSON.stringify(k.description)}\n${k.stages.length ? `stages: [${k.stages.join(', ')}]\n` : ''}${k.always ? 'always: true\n' : ''}---\n\n`;
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([fm + k.body + '\n'], { type: 'text/markdown' })); a.download = `${k.name}.SKILL.md`; a.click(); URL.revokeObjectURL(a.href);
+  };
+  const stageName = (id: string) => d?.stages.find((x) => x.id === id)?.label || id;
+  if (!d) return err ? <div className="issue error">{err}</div> : <div className="dim small">Loading…</div>;
+  return (
+    <div className="col" style={{ gap: 16 }}>
+      <div className="ccard">
+        <div className="hd"><I.wand size={15} /><h3>Team skills</h3><span className="grow" />
+          <label className="btn sm" style={{ cursor: 'pointer' }}><I.upload size={14} />Import SKILL.md<input type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" multiple hidden onChange={(e) => { importFiles(e.target.files); e.target.value = ''; }} /></label>
+          <button className="btn sm primary" onClick={() => { setEdit({ ...blank }); setErr(''); }}>New skill</button>
+        </div>
+        <div className="bd col" style={{ gap: 10 }}>
+          <p className="small muted" style={{ margin: 0 }}>Saved instructions Nick follows when he writes: your brand voice, how you like hooks, words to avoid, a review checklist. For each project Nick reads every skill's <b>description</b> and picks the ones that fit (or you say “use the brand-voice skill” in the chat). Skills shape tone and structure; they can't add facts. Every number still has to come from your sources.</p>
+          <p className="xs dim" style={{ margin: 0 }}>Already have Claude skills? Import their SKILL.md files: the name and description come from the frontmatter.</p>
+        </div>
+      </div>
+      {err && <div className="issue error">{err}</div>}
+      {edit && (
+        <div className="ccard">
+          <div className="hd"><h3>{edit.id ? `Edit ${edit.name}` : 'New skill'}</h3><span className="grow" />{!edit.id && <span className="xs muted">Start from an example:</span>}{!edit.id && EXAMPLES.map((x) => <button key={x.name} className="btn sm ghost" onClick={() => setEdit({ ...blank, ...x })}>{x.name}</button>)}</div>
+          <form className="bd col" style={{ gap: 14 }} onSubmit={(e) => { e.preventDefault(); save(); }}>
+            <label className="f"><span>Name</span><input value={edit.name} maxLength={64} placeholder="brand-voice" onChange={(e) => setEdit({ ...edit, name: e.target.value.toLowerCase().replace(/\s+/g, '-') })} /></label>
+            <label className="f"><span>When to use it</span><input value={edit.description} maxLength={1024} placeholder="Use for LinkedIn ads for our enterprise product: …" onChange={(e) => setEdit({ ...edit, description: e.target.value })} /></label>
+            <div className="xs dim" style={{ marginTop: -8 }}>Nick decides from this line alone whether the skill fits a project, so say what kind of video, product or audience it is for.</div>
+            <label className="f"><span>Instructions</span><textarea className="code" style={{ minHeight: 220 }} value={edit.body} maxLength={d.limits.body} placeholder="# Brand voice&#10;&#10;- Plain, confident…" onChange={(e) => setEdit({ ...edit, body: e.target.value })} /></label>
+            <div className="xs dim" style={{ marginTop: -8 }}>{edit.body.length.toLocaleString()} / {d.limits.body.toLocaleString()} characters</div>
+            <div className="col" style={{ gap: 8 }}>
+              <span className="small" style={{ fontWeight: 500 }}>Applies to</span>
+              <div className="row wrap" style={{ gap: 8 }}>
+                <button type="button" className={`chip ${!edit.stages.length ? 'on' : ''}`} onClick={() => setEdit({ ...edit, stages: [] })}>Everything</button>
+                {d.stages.map((st) => { const on = edit.stages.includes(st.id); return <button type="button" key={st.id} className={`chip ${on ? 'on' : ''}`} onClick={() => setEdit({ ...edit, stages: on ? edit.stages.filter((x) => x !== st.id) : [...edit.stages, st.id] })}>{st.label}</button>; })}
+              </div>
+            </div>
+            <label className="row small" style={{ gap: 8, alignItems: 'center' }}><input type="checkbox" style={{ width: 'auto' }} checked={edit.always} onChange={(e) => setEdit({ ...edit, always: e.target.checked })} />Always use on every project (skip Nick's choice)</label>
+            <div className="row" style={{ gap: 10 }}><button className="btn primary" disabled={busy || !edit.name.trim() || !edit.description.trim() || !edit.body.trim()}>{busy ? 'Saving…' : 'Save skill'}</button><button type="button" className="btn ghost" onClick={() => setEdit(null)}>Cancel</button></div>
+          </form>
+        </div>
+      )}
+      {!d.items.length && !edit ? <div className="dim small">No skills yet. Add one, or import a SKILL.md.</div> : d.items.map((k) => (
+        <div key={k.id} className="ccard" style={{ opacity: k.enabled ? 1 : 0.6 }}>
+          <div className="hd"><h3 className="tc" style={{ fontSize: 14 }}>{k.name}</h3>{k.always && <span className="pill acc">Always on</span>}{!k.enabled && <span className="pill neu">Off</span>}{k.source === 'import' && <span className="pill neu">Imported</span>}<span className="grow" />
+            <button className="btn sm ghost" onClick={() => patch(k, { enabled: !k.enabled })}>{k.enabled ? 'Turn off' : 'Turn on'}</button>
+            <button className="btn sm ghost" onClick={() => download(k)} title="Download as SKILL.md"><I.download size={14} /></button>
+            <button className="btn sm ghost" onClick={() => { setEdit({ id: k.id, name: k.name, description: k.description, body: k.body, stages: k.stages, always: k.always }); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><I.edit size={14} /></button>
+            <button className="btn sm ghost danger" onClick={() => remove(k)}><I.trash size={14} /></button>
+          </div>
+          <div className="bd col" style={{ gap: 6 }}>
+            <div className="small">{k.description}</div>
+            <div className="xs dim">{k.stages.length ? k.stages.map(stageName).join(' · ') : 'All stages'} · {k.body.length.toLocaleString()} characters{k.createdBy ? ` · added by ${k.createdBy}` : ''}</div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

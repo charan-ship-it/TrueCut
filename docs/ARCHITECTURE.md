@@ -40,6 +40,16 @@ Every job runs inside a context (`packages/config/src/context.ts`) resolved when
 
 `apps/extension` (Chrome) and the Library page upload captures. A `library_read` job has Claude read each one. Nick attaches matching shots to a video as visuals plus sources, so their numbers pass the fact guard ([ADR 0006](adr/0006-screenshot-library-and-extension.md)).
 
+### Team skills
+
+A workspace can save **skills**: reusable instructions (brand voice, how they write hooks, words to avoid, a review checklist) in the same shape as an Agent Skill's `SKILL.md` (frontmatter `name` + `description`, markdown body). They are managed in Settings → Skills (create, edit, turn off, import or download `SKILL.md`) and stored in the `skills` table. Loading is progressive (`packages/core/src/skills/skills.ts`):
+
+1. Nick sees only each skill's name and description.
+2. Once per project, at the first creative step (angles, storyboard or the founder-talk edit), a small Claude call picks the skills whose description fits the brief (at most 4). Skills marked *always* are loaded without being picked. The choice is stored on the project (`p.skills`), announced in the chat, and can be changed there (`/skills`, “use the X skill”, “drop the X skill”).
+3. Only the chosen skills' bodies are added to the prompts, and only for the stages each one applies to (angles, storyboard and scene edits, chat, voice and music, founder talks), up to 16k characters per prompt.
+
+Skills shape tone, wording, structure and process. They cannot loosen the fact rules: the block that carries them restates that only approved facts may be used, and the fact check runs after every storyboard regardless. Fact extraction never sees skills.
+
 ### Job kinds
 
 | Kind | Started by | Does |

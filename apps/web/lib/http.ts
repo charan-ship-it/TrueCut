@@ -17,7 +17,7 @@ function onError(e: any) {
   if (/not found/i.test(m)) return fail(m, 404);
   console.error('[api]', e);
   // never leak internals (SQL, stack traces) to the browser
-  return fail(/^(DrizzleError|PostgresError)|relation |syntax error|ECONNREFUSED/i.test(m) || e?.name === 'PostgresError' ? 'Something went wrong on the server. Please try again.' : m, 500);
+  return fail(/^(DrizzleError|PostgresError|Failed query)|relation |syntax error|ECONNREFUSED/i.test(m) || e?.name === 'PostgresError' ? 'Something went wrong on the server. Please try again.' : m, 500);
 }
 
 /** Parse and validate a JSON body. */

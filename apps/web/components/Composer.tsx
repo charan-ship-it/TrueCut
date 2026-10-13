@@ -19,6 +19,7 @@ const SLASH = [
   { c: '/shorter', d: 'Cut it down by ten seconds' },
   { c: '/angles', d: 'Pitch me three new angles' },
   { c: '/storyboard', d: 'Rewrite the storyboard' },
+  { c: '/skills', d: "See which of your team's skills Nick is following" },
   ...Object.entries(DIRECTIONS).map(([k, d]: any) => ({ c: `/direction ${k}`, d: d.label + ', ' + d.vibe.split('.')[0].toLowerCase() })),
   ...Object.entries(CAPTION_STYLES).map(([k, d]) => ({ c: `/captions ${k}`, d: `Captions: ${d.split('.')[0].toLowerCase()}` })),
 ];

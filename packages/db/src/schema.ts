@@ -158,3 +158,23 @@ export const emailTokens = pgTable('email_tokens', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index('email_tokens_email_idx').on(t.email)]);
+
+/** Team skills: reusable instructions (house style, brand voice, a process) that Nick follows when it writes.
+ *  Same shape as an Agent Skill's SKILL.md: a name + a one-line description that says when to use it, and a body. */
+export const skills = pgTable('skills', {
+  id: text('id').primaryKey(),
+  workspaceId: text('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+  name: text('name').notNull(),                             // kebab-case slug, unique per workspace
+  description: text('description').notNull().default(''),  // when to use it: what Nick reads to decide
+  body: text('body').notNull().default(''),                 // the instructions, markdown
+  stages: jsonb('stages').notNull().default([]),            // angles | storyboard | chat | voice | talk; [] = all
+  always: boolean('always').notNull().default(false),       // load on every project, without being picked
+  enabled: boolean('enabled').notNull().default(true),
+  source: text('source').notNull().default('manual'),       // manual | import
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+}, (t) => [
+  uniqueIndex('skills_ws_name_idx').on(t.workspaceId, t.name).where(sql`${t.deletedAt} is null`),
+]);

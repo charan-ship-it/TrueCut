@@ -4,6 +4,7 @@
 import { config } from '@truecut/config';
 import { getProject, updateProject } from '@truecut/db';
 import { callTool } from './ai';
+import { skillBlock } from '../skills/skills';
 import { listVoices } from '../audio/voice';
 import { DIRECTIONS, GENRES } from '@truecut/engine/styles.js';
 import type { CastMember, Project } from '@truecut/shared/types';
@@ -46,7 +47,7 @@ Rules:
 - Never cast a voice to impersonate a real, named person. A quoted line read by a second voice is a read, not an imitation.
 - Match accent and register to the audience and brand (e.g. US enterprise → American, measured; UK consulting → British; Gen-Z consumer → young, bright). Match energy to the visual direction and pacing.
 - Pick a score genre and tempo that fit the tone and the direction; the voice sits on top of it.
-${instruction ? `CUSTOMER REQUEST (follow it): ${instruction}` : ''}`,
+${instruction ? `CUSTOMER REQUEST (follow it): ${instruction}` : ''}${await skillBlock(pid, 'voice', p).catch(() => '')}`,
         tool: CAST_TOOL,
         content: [{ type: 'text', text: `Product: ${p.intake.productName} — ${p.intake.oneLiner}\nAudience: ${p.intake.audience}\nTone: ${p.intake.tone}\nVisual direction: ${dir.label} — ${dir.vibe} (its default score: ${dir.music.genre} ${dir.music.bpm} bpm)\n${ang ? `Angle: ${ang.title} — ${ang.structure}\n` : ''}${p.cast.members.length ? `Current cast: ${p.cast.members.map((m) => `${m.role}=${m.name}`).join(', ')}\n` : ''}\nSTORYBOARD (scene · type · spoken line)\n${lines.map(({ s, i }) => `${i + 1} · ${s.type} · ${s.vo!.text}`).join('\n')}\n\nVOICE LIBRARY (id · name · labels · description)\n${voices.map((v) => `${v.id} · ${v.name} · ${Object.entries(v.labels || {}).map(([k, x]) => `${k}:${x}`).join(', ')}${v.description ? ' · ' + v.description.slice(0, 120) : ''}`).join('\n')}\n\nCall record_cast.` }],
       });

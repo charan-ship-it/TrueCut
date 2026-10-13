@@ -22,7 +22,7 @@ export default function EmailLinkForm({ callbackUrl, primary }: { callbackUrl: s
   if (state === 'sent') return (
     <div className="signin-sent">
       <strong>Check your email.</strong><br />
-      If <strong>{email}</strong> can sign in to TrueCut, a link is on its way. It works once and expires in 15 minutes.
+      If <strong>{email}</strong> can sign in to TrueCut, a link is on its way. It works once and expires in 30 minutes.
       <div style={{ marginTop: 10 }}><button className="btn" onClick={() => setState('idle')}>Use a different address</button></div>
     </div>
   );

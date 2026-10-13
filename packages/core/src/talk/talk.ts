@@ -419,10 +419,10 @@ async function renderTalkNow(pid: string, formats: FormatId[], log: Log) {
       const rel = `renders/${name}_talk_${L.duration.toFixed(0)}s_${fmt}.mp4`;
       log(`Mixing audio into ${fmt}…`, base + 95 / formats.length);
       await ffmpeg(['-i', silent, '-i', projectPath(pid, mix), '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-af', 'loudnorm=I=-14:TP=-1.5:LRA=9', '-ar', '48000', '-c:a', 'aac', '-b:a', '256k', '-movflags', '+faststart', '-t', L.duration.toFixed(3), projectPath(pid, rel)]);
-      outs.push({ id: 'r' + newId().slice(0, 6), format: fmt, file: rel, at: new Date().toISOString(), duration: L.duration, bytes: fs.statSync(projectPath(pid, rel)).size, srt: `renders/${name}_talk.srt` });
+      outs.push({ id: 'r' + newId().slice(0, 6), format: fmt, file: rel, at: new Date().toISOString(), duration: L.duration, bytes: fs.statSync(projectPath(pid, rel)).size, srt: `renders/${name}_talk_${L.duration.toFixed(0)}s.srt` });
     }
   } finally { await browser.close(); srv.close(); fs.rmSync(tmp, { recursive: true, force: true }); }
-  fs.writeFileSync(projectPath(pid, `renders/${name}_talk.srt`), await talkSrt(pid));
+  fs.writeFileSync(projectPath(pid, `renders/${name}_talk_${L.duration.toFixed(0)}s.srt`), await talkSrt(pid));
   await updateProject(pid, (pp) => { pp.renders = [...outs, ...pp.renders.filter((r) => !outs.some((o) => o.file === r.file))]; pp.stage = 'done'; });
   log(`Done: ${outs.map((o) => o.format).join(', ')}`, 100);
   return outs;

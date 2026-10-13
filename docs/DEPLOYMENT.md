@@ -106,7 +106,7 @@ The link is sent through [Nylas](https://dashboard.nylas.com). Add to the **web*
 | either `NYLAS_SEND_DOMAIN` + `EMAIL_FROM` | a domain verified under Organization Settings → Domains (e.g. `mail.aixccelerate.com`) and `TrueCut <signin@mail.aixccelerate.com>`. Recommended: no mailbox needed, best delivery |
 | or `NYLAS_GRANT_ID` + `NYLAS_MAILBOX_EMAIL` | a connected mailbox; links come from that address, shown as "TrueCut" |
 
-A link works once, for 15 minutes, and only for an allowed address. Opening it shows a *Continue* button, so mail scanners that open links can't use it up. The form answers the same for any address, so it can't be used to find out who is on the team. Requests are limited per address and per IP.
+A link works once, for 30 minutes, and only for an allowed address. Opening it shows a *Continue* button, so mail scanners that open links can't use it up. The form answers the same for any address, so it can't be used to find out who is on the team. Requests are limited per address and per IP.
 
 ### Who gets in
 
@@ -172,7 +172,7 @@ That copies every project into Postgres and uploads its files to the bucket. Use
 |---|---|
 | Sign-in page says "isn't set up" | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, or the `NYLAS_*` values, and `NEXTAUTH_SECRET` on web |
 | "We couldn't send the email" | web Deploy Logs show `[signin] email not sent: Nylas …` with the reason (bad key, unverified domain, mailbox disconnected) |
-| Email link says "expired or already used" | links last 15 minutes and work once; only the newest 3 per address stay valid |
+| Email link says "expired or already used" | links last 30 minutes and work once; only the newest 3 per address stay valid |
 | Google says *redirect_uri_mismatch* | the redirect URI in Google must be exactly `<NEXTAUTH_URL>/api/auth/callback/google` |
 | "That account isn't on the TrueCut team" | `ALLOWED_EMAIL_DOMAINS` / `ALLOWED_EMAILS` |
 | Nick never starts working | worker logs; `TRUECUT_QUEUE=pgboss` on web; the worker has the same `DATABASE_URL` |

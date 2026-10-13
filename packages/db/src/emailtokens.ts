@@ -6,7 +6,7 @@ import { db } from './client';
 import { emailTokens } from './schema';
 import { sha256 } from './secrets';
 
-export const EMAIL_TOKEN_MINUTES = 15;
+export const EMAIL_TOKEN_MINUTES = 30;
 /** At most this many unused links per address at once; older ones are dropped. */
 const MAX_OPEN = 3;
 

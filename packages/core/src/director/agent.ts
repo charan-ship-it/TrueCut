@@ -378,6 +378,18 @@ const DECIDE_TOOL = {
       formats: { type: 'array', items: { type: 'string', enum: ['4x5', '9x16', '1x1'] } } } } } } },
 };
 
+/** The conversation so far, for Claude: the last turns before this message (short, newest last). Without it
+ *  Nick only saw the current message, so "like I said earlier" or "the second option" meant nothing. */
+export function recentChat(p: Project, max = 12) {
+  const msgs = p.chat.slice(0, -1).filter((m) => (m.text || '').trim() || m.cards?.length).slice(-max);
+  const line = (m: any) => {
+    let t = String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+    if (m.cards?.some((c: any) => c.kind === 'angles') && p.angles?.length) t += ` [offered angles: ${p.angles.map((a, i) => `${i + 1}. ${a.title}`).join('; ')}]`;
+    return `${m.role === 'user' ? 'User' : 'Nick'}: ${t || `(${m.cards.map((c: any) => c.kind).join(', ')})`}`;
+  };
+  return msgs.length ? `Conversation so far (oldest first):\n${msgs.map(line).join('\n')}\n\n` : '';
+}
+
 async function interpret(pid: string, text: string, jobId: string) {
   const p = await getProject(pid);
   if (p.kind === 'talk') return interpretTalk(pid, text, jobId);
@@ -389,7 +401,7 @@ async function interpret(pid: string, text: string, jobId: string) {
       model: config.model, maxTokens: 1500,
       system: `You are Nick, the director inside TrueCut, a tool that turns real product sources into motion-graphics video ads. Map the user's message to actions. Never invent facts. If they ask for something general ("punchier", "more energy"), revise the relevant scenes or restoryboard with that instruction. Anything about the VOICE(S), narrator, accent, a second voice or the music/score → recast with their words as the instruction. Directions: ${Object.entries(DIRECTIONS).map(([k, d]: any) => `${k} (${d.label})`).join(', ')}.`,
       tool: DECIDE_TOOL,
-      content: [{ type: 'text', text: `Stage: ${p.stage}. Direction: ${p.style?.preset}. Length target: ${p.intake.length}s.\nStoryboard:\n${p.scenes.map((s, i) => `${i + 1}. [${s.type}] ${s.vo?.text || ''}`).join('\n') || '(none yet)'}\n\nUser: ${text}` }],
+      content: [{ type: 'text', text: `Stage: ${p.stage}. Direction: ${p.style?.preset}. Length target: ${p.intake.length}s.\nStoryboard:\n${p.scenes.map((s, i) => `${i + 1}. [${s.type}] ${s.vo?.text || ''}`).join('\n') || '(none yet)'}\n\n${recentChat(p)}User: ${text}` }],
     });
   }
   if (!plan) {
@@ -454,7 +466,7 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
     model: config.model, maxTokens: 1500,
     system: `You are Nick, the editor inside TrueCut. This project is a FOUNDER TALK: a real recording cut into a short with an illustrated panel per beat. Map the user's message to actions. "scene N" means beat N. restoryboard = re-edit the whole cut with the instruction (e.g. "start with the tribal knowledge bit", "more energy", "drop the intro"). revise_scene = redraw one beat's headline/illustration. set_layout split|overlay. Directions: ${Object.keys(DIRECTIONS).join(', ')}.`,
     tool: DECIDE_TOOL,
-    content: [{ type: 'text', text: `Length now: ${p.talk.duration.toFixed(0)}s (target ${p.intake.length}s). Layout: ${p.talk.layout}. Look: ${p.style?.preset}.\nBeats:\n${p.talk.beats.map((b, i) => `${i + 1}. "${b.headline}" [${b.visual?.kind}]`).join('\n')}\n\nUser: ${text}` }],
+    content: [{ type: 'text', text: `Length now: ${p.talk.duration.toFixed(0)}s (target ${p.intake.length}s). Layout: ${p.talk.layout}. Look: ${p.style?.preset}.\nBeats:\n${p.talk.beats.map((b, i) => `${i + 1}. "${b.headline}" [${b.visual?.kind}]`).join('\n')}\n\n${recentChat(p)}User: ${text}` }],
   });
   if (!plan) { await post(pid, { role: 'nick', text: 'Without an AI key I can change the length, layout, look and captions, or render. Add an Anthropic API key in Settings → API keys for free-form edits.', replies: ['Render it', 'Switch to overlay layout', 'Make it shorter'] }); return; }
   if (plan.reply) await post(pid, { role: 'nick', text: plan.reply });

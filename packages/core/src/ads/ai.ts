@@ -45,7 +45,7 @@ Creative rules (non-negotiable):
 5. Use the real visuals by id. Prefer screenshots for card/document/headline backplates and screen zooms. Never reference a visual id that is not listed.
 6b. People & permission: never present placeholder, sample or mock data (names like "Sarah Chen", "Acme", lorem ipsum, fixture records) as real. Do not show real third-party people's names or quotes (clients, prospects, customers) unless the customer's answers explicitly grant permission — the brand's own team and founders are fine.
 6. Respect the brand: use the customer's product name, CTA and tone. Do not promise capabilities flagged as risks or not in the facts.
-7. Pacing — HARD LIMIT: the voice is read at ~2.7 words/second and every scene adds ~0.8s, so total spoken words across ALL scenes must be ≤ 2.2 × target seconds (30s → ≤ 66 words, 15s → ≤ 33, 45s → ≤ 99). Most lines are 4-9 words; some scenes can be silent (vo: \"\"). 30s → 8-9 scenes, 15s → 5 scenes, 45s → 12 scenes.
+7. Pacing — HARD LIMIT: the narrator reads ~2.4 words/second and every scene has a minimum on-screen time (~2.5-3.5s), so total spoken words across ALL scenes must be ≤ 2.0 × target seconds (30s → ≤ 60 words, 15s → ≤ 30, 45s → ≤ 90), and the scene count is capped: 15s → 4 scenes (5 at most), 30s → 7-8 scenes, 45s → 10-11 scenes, 60s → 13-14. Most lines are 4-9 words; some scenes can be silent (vo: \"\").
 8. "status" (optional) is a 2-5 word live status line shown in the HUD after the reveal, e.g. "Scoring 457 ideas".
 `;
 

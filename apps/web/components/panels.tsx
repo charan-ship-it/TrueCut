@@ -294,7 +294,7 @@ export function RenderPanel(c: Ctx) {
       {p.renders.map((r) => <div key={r.id} className="card col">
         <div className="row between"><h3>{r.format.replace('x', ':')} · {r.duration.toFixed(1)}s</h3><span className="small muted">{new Date(r.at).toLocaleString()} · {(r.bytes / 1e6).toFixed(1)} MB</span></div>
         <video controls src={fileUrl(p.id, r.file)} style={{ maxHeight: 520 }} />
-        <div className="row wrap"><a className="btn primary sm" href={fileUrl(p.id, r.file) + '?download'}>Download MP4</a>{r.srt && <a className="btn sm" href={fileUrl(p.id, r.srt) + '?download'}>Captions .srt</a>}<a className="btn sm" href={fileUrl(p.id, `renders/${name}_FACTS.md`)} target="_blank" rel="noreferrer">Facts ledger</a><span className="small dim grow" style={{ textAlign: 'right', wordBreak: 'break-all' }}>data/projects/{p.id}/{r.file}</span></div>
+        <div className="row wrap"><a className="btn primary sm" href={fileUrl(p.id, r.file) + '?download'}>Download MP4</a>{r.srt && <a className="btn sm" href={fileUrl(p.id, r.srt) + '?download'}>Captions .srt</a>}<a className="btn sm" href={fileUrl(p.id, r.srt && /_\d+s\.srt$/.test(r.srt) ? r.srt.replace(/\.srt$/, '_FACTS.md') : `renders/${name}_FACTS.md`)} target="_blank" rel="noreferrer">Facts ledger</a><span className="small dim grow" style={{ textAlign: 'right', wordBreak: 'break-all' }}>data/projects/{p.id}/{r.file}</span></div>
       </div>)}
     </div>}
   </>);

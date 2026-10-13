@@ -19,7 +19,7 @@ import { ingestMedia, isMedia, planTalk, buildProxies, buildProxiesFresh, render
 import { ffmpeg } from '../render/media';
 import { checkScenes } from '@truecut/shared/facts';
 import { defineHandler, enqueue, isBusy, type Log } from '@truecut/queue';
-import { DIRECTIONS } from '@truecut/engine/styles.js';
+import { DIRECTIONS, CAPTIONS, CAPTION_STYLES } from '@truecut/engine/styles.js';
 import type { Angle, ChatMsg, FormatId, Project } from '@truecut/shared/types';
 
 import { detectSources, type Attachment } from '@truecut/shared/detect';
@@ -309,6 +309,35 @@ async function setDirection(pid: string, preset: string, jobId: string, announce
   if (announce) await post(pid, { role: 'nick', text: `Switched to **${DIRECTIONS[preset].label}**: ${DIRECTIONS[preset].vibe} The preview on the right has updated, and the music changes with it.`, replies: ['Render it', 'Make it punchier', 'Try another look'] });
 }
 
+/** Captions are part of the direction, but people often want a different caption look on the same direction
+ *  (e.g. bold outline for sound-off feeds). Stored as a style override, so it survives a direction switch. */
+async function setCaptionStyle(pid: string, cap: string) {
+  if (!CAPTIONS.includes(cap)) throw new Error('Unknown caption style');
+  await updateProject(pid, (p) => { p.style = { ...(p.style || {}), captions: cap }; });
+  await post(pid, { role: 'nick', text: cap === 'none' ? 'Captions are off. The preview has updated.' : `Captions are now **${cap}**: ${CAPTION_STYLES[cap]} The preview has updated.`, replies: ['Render it', 'Captions: outline', 'Captions: highlight'] });
+}
+
+/** Match a typed caption-style request: "captions highlight", "caption style: outline", "use karaoke captions". */
+export function captionStyleFrom(t: string): string | null {
+  const pats = [/^\/captions?\s+([a-z]+)/, /\bcaptions?(?:\s+style)?(?:\s*[:=]\s*|\s+)(?:to\s+)?([a-z]+)\b/, /\b([a-z]+)\s+captions?\b/];
+  for (const re of pats) { const m = t.match(re); if (m && CAPTIONS.includes(m[1])) return m[1]; }
+  return null;
+}
+
+/** Match a typed direction request against every direction's key and label. */
+export function directionFrom(t: string): string | null {
+  const slash = t.match(/^\/(?:direction|look)\s+(\w+)/);
+  if (slash) return DIRECTIONS[slash[1]] ? slash[1] : null;
+  if (!/\b(switch|change|try|use|go)\b/.test(t)) return null;
+  // "show the Chrome extension" must not switch to the Chrome look: needs a look word or a short message
+  if (!/\b(look|direction|style|vibe|theme)\b/.test(t) && t.split(/\s+/).length > 5) return null;
+  for (const [k, d] of Object.entries(DIRECTIONS) as any) {
+    const label = String(d.label || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+    if (new RegExp(`\\b${k}\\b`).test(t) || (label && t.includes(label))) return k;
+  }
+  return null;
+}
+
 async function writeStory(pid: string, jobId: string) {
   const pr = await progress(pid, jobId, 'Writing the storyboard');
   await pr.step('Writing scenes from your verified facts');
@@ -374,7 +403,8 @@ const DECIDE_TOOL = {
   input_schema: { type: 'object', required: ['reply', 'actions'], properties: {
     reply: { type: 'string', description: 'short, warm reply in plain language (1-2 sentences). Say what you are about to do.' },
     actions: { type: 'array', items: { type: 'object', required: ['do'], properties: {
-      do: { type: 'string', enum: ['revise_scene', 'restoryboard', 'set_length', 'set_brief', 'set_direction', 'propose_angles', 'render', 'delete_scene', 'set_layout', 'set_captions', 'recast', 'none'] },
+      do: { type: 'string', enum: ['revise_scene', 'restoryboard', 'set_length', 'set_brief', 'set_direction', 'propose_angles', 'render', 'delete_scene', 'set_layout', 'set_captions', 'set_caption_style', 'recast', 'none'] },
+      captionStyle: { type: 'string', enum: CAPTIONS, description: 'for set_caption_style: how the on-screen captions look' },
       layout: { type: 'string', enum: ['split', 'overlay'] }, captions: { type: 'boolean' },
       scene: { type: 'number', description: '1-based scene number for revise/delete' },
       instruction: { type: 'string' }, length: { type: 'number' }, preset: { type: 'string', enum: Object.keys(DIRECTIONS) },
@@ -403,7 +433,7 @@ async function interpret(pid: string, text: string, jobId: string) {
   if (!plan && config.anthropicKey) {
     plan = await callTool<any>({
       model: config.model, maxTokens: 1500,
-      system: `You are Nick, the director inside TrueCut, a tool that turns real product sources into motion-graphics video ads. Map the user's message to actions. Never invent facts. If they ask for something general ("punchier", "more energy"), revise the relevant scenes or restoryboard with that instruction. Anything about the VOICE(S), narrator, accent, a second voice or the music/score → recast with their words as the instruction. Directions: ${Object.entries(DIRECTIONS).map(([k, d]: any) => `${k} (${d.label})`).join(', ')}.`,
+      system: `You are Nick, the director inside TrueCut, a tool that turns real product sources into motion-graphics video ads. Map the user's message to actions. Never invent facts. If they ask for something general ("punchier", "more energy"), revise the relevant scenes or restoryboard with that instruction. Anything about the VOICE(S), narrator, accent, a second voice or the music/score → recast with their words as the instruction. Directions: ${Object.entries(DIRECTIONS).map(([k, d]: any) => `${k} (${d.label})`).join(', ')}. Caption styles (set_caption_style): ${Object.entries(CAPTION_STYLES).map(([k, d]) => `${k}: ${d}`).join('; ')}.`,
       tool: DECIDE_TOOL,
       content: [{ type: 'text', text: `Stage: ${p.stage}. Direction: ${p.style?.preset}. Length target: ${p.intake.length}s.\nStoryboard:\n${p.scenes.map((s, i) => `${i + 1}. [${s.type}] ${s.vo?.text || ''}`).join('\n') || '(none yet)'}\n\n${recentChat(p)}User: ${text}` }],
     });
@@ -418,6 +448,7 @@ async function interpret(pid: string, text: string, jobId: string) {
     if (ac.do === 'set_length' && ac.length) { await updateProject(pid, (pp) => { pp.intake.length = Math.max(10, Math.min(60, Math.round(ac.length))); }); restory = true; }
     if (ac.do === 'set_brief' && ac.brief) { await updateProject(pid, (pp) => { Object.assign(pp.intake, ac.brief); }); changed = true; }
     if (ac.do === 'set_direction' && ac.preset) { await setDirection(pid, ac.preset, jobId, true); }
+    if (ac.do === 'set_caption_style' && ac.captionStyle) await setCaptionStyle(pid, ac.captionStyle);
     if (ac.do === 'propose_angles') { const angles = await proposeAngles(pid); await updateProject(pid, (pp) => { pp.angles = angles; }); await post(pid, { role: 'nick', text: 'Fresh angles:', cards: [{ kind: 'angles' }] }); }
     if (ac.do === 'restoryboard') { if (ac.instruction) await updateProject(pid, (pp) => { pp.intake.mustSay = [pp.intake.mustSay, ac.instruction].filter(Boolean).join(' · '); }); restory = true; }
     if (ac.do === 'delete_scene' && ac.scene) { await updateProject(pid, (pp) => { pp.scenes.splice(ac.scene - 1, 1); pp.audioHash = undefined; }); changed = true; }
@@ -503,8 +534,10 @@ async function recast(pid: string, instruction: string, jobId: string) {
 /** Cheap deterministic intents (work without an AI key). */
 function rules(text: string, p: Project): { reply: string; actions: any[] } | null {
   const t = text.trim().toLowerCase();
-  const dir = t.match(/^\/(?:direction|look)\s+(\w+)/) || t.match(/\b(?:switch|change|try)\b.*\b(signal|editorial|neon|swiss|brutal|blueprint|cinematic|terminal|pop|magazine)\b/);
-  if (dir && DIRECTIONS[dir[1]]) return { reply: '', actions: [{ do: 'set_direction', preset: dir[1] }] };
+  const cap = captionStyleFrom(t);
+  if (cap && !/\b(on|off)\b/.test(t)) return { reply: '', actions: [{ do: 'set_caption_style', captionStyle: cap }] };
+  const dir = directionFrom(t);
+  if (dir) return { reply: '', actions: [{ do: 'set_direction', preset: dir }] };
   if (/^(try )?another look$/.test(t)) { const keys = Object.keys(DIRECTIONS).filter((k) => k !== p.style?.preset); return { reply: '', actions: [{ do: 'set_direction', preset: keys[Math.floor(Math.random() * keys.length)] }] }; }
   const len = t.match(/\b(\d{2})\s*(?:s|sec|secs|seconds)\b/);
   if (len && /\b(cut|make|version|long|length|shorter|longer)\b/.test(t)) return { reply: `Re-cutting it to ${len[1]} seconds.`, actions: [{ do: 'set_length', length: Number(len[1]) }] };

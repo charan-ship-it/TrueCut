@@ -41,7 +41,13 @@ export function weightFor(fam, want) {
 
 export const BACKGROUNDS = ['grid', 'paper', 'horizon', 'modules', 'stripes', 'blueprint', 'smoke', 'scanlines', 'blobs', 'solid', 'dots', 'aurora', 'halftone', 'bento', 'scraps', 'ruled', 'sparkle', 'baseline', 'handheld'];
 export const TRANSITIONS = ['zoom', 'wipe', 'iris', 'slide', 'glitch', 'cut', 'fade', 'blur', 'misregister', 'stopmotion', 'swipe'];
-export const CAPTIONS = ['clean', 'box', 'karaoke', 'mono', 'pill', 'none'];
+export const CAPTIONS = ['clean', 'box', 'karaoke', 'mono', 'pill', 'highlight', 'outline', 'typewriter', 'quiet', 'none'];
+/** What each caption style looks like, for Nick and the UI. */
+export const CAPTION_STYLES = {
+  clean: 'Words brighten as they are spoken.', box: 'Solid ink bar behind the line.', karaoke: 'The spoken word lights up in the accent.', mono: 'Terminal-style mono text.',
+  pill: 'Rounded accent pills (CapCut-style).', highlight: 'The spoken word gets an accent box and grows a little.', outline: 'Bold white words with a black outline that pop in one by one.',
+  typewriter: 'Each word types itself out as it is spoken.', quiet: 'Small lowercase line, no motion. Calm and editorial.', none: 'No burned-in captions.',
+};
 export const GENRES = ['pulse', 'cinematic', 'lofi', 'synthwave', 'house', 'trap', 'piano', 'ambient', 'bright'];
 
 export const DIRECTIONS = {

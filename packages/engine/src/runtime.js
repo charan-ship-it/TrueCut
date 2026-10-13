@@ -91,6 +91,9 @@ function css(S, fontBase) {
 .nm .cap{position:absolute;left:60px;right:60px;text-align:center;font-weight:650;font-size:36px;line-height:1.25;letter-spacing:-.01em;text-wrap:balance}
 .nm .cap.box span.ln{background:var(--cr);color:var(--bg);padding:4px 14px;box-decoration-break:clone;-webkit-box-decoration-break:clone;line-height:1.55}
 .nm .cap.mono{font-family:var(--fm);font-weight:500;font-size:32px;text-align:left}
+.nm .cap.outline{font-weight:900;font-size:52px;line-height:1.2;color:#fff;letter-spacing:.005em;text-shadow:3px 0 #000,-3px 0 #000,0 3px #000,0 -3px #000,2px 2px #000,-2px 2px #000,2px -2px #000,-2px -2px #000,0 5px 0 #000}
+.nm .cap.highlight .w{display:inline-block;border-radius:8px;padding:0 .12em}
+.nm .cap.quiet{font-family:var(--fd);font-weight:var(--dw2);font-size:30px;text-transform:lowercase;letter-spacing:.01em;color:var(--cr)}
 .nm .cap.pill span.ln{background:var(--a);color:var(--ai);padding:6px 20px;border-radius:18px;box-decoration-break:clone;-webkit-box-decoration-break:clone;line-height:1.6;font-weight:700}
 /* background-clip:text has to sit on each animated word: a transformed child drops out of its parent's clip */
 .nm .chromet .w{background:linear-gradient(175deg,#FFFFFF 0%,#E6E9F0 38%,#9AA1B2 50%,#F4F6FB 62%,#FFFFFF 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
@@ -167,12 +170,13 @@ export function mount(root, comp, opts = {}) {
   const segs = L.scenes.map(() => mk(mk(prog, 'div', '', { flex: '1', height: hudMode === 'minimal' ? '3px' : '4px', background: 'rgba(var(--ir),.14)', borderRadius: '2px', overflow: 'hidden' }), 'div', '', { height: '100%', width: '0%' }));
 
   // ── captions ──
-  const capCls = 'cap' + (S.captions === 'box' ? ' box' : S.captions === 'mono' ? ' mono' : S.captions === 'pill' ? ' pill' : '');
+  const capCls = 'cap' + ({ box: ' box', mono: ' mono', pill: ' pill', outline: ' outline', highlight: ' highlight', quiet: ' quiet' }[S.captions] || '');
   const caps = L.captions.map((c) => {
-    const el = mk(capbox, 'div', capCls, { top: capY + 'px', opacity: 0 });
+    const el = mk(capbox, 'div', capCls, { bottom: H - Math.min(progY - 14, capY + 58) + 'px', opacity: 0, ...(TALL ? { left: '90px', right: '170px' } : {}) });
     const host = S.captions === 'box' || S.captions === 'pill' ? mk(el, 'span', 'ln') : el;
     if (S.captions === 'mono') mk(host, 'span', '', { color: 'var(--a)' }, '&gt; ');
-    return { ...c, el, ws: c.words.map((w) => [mk(host, 'span', 'w', null, esc(w.w) + ' '), w.t]) };
+    // each word: its span, when it's spoken, until when (the next word), and whether it is a number (stat pop)
+    return { ...c, el, ws: c.words.map((w, i) => [mk(host, 'span', 'w', null, esc(w.w) + ' '), w.t, c.words[i + 1]?.t ?? c.end, /\d/.test(w.w)]) };
   });
   if (comp.captions === false || S.captions === 'none') capbox.style.display = 'none';
 
@@ -227,11 +231,18 @@ export function mount(root, comp, opts = {}) {
     caps.forEach((c) => {
       const on = t >= c.start - 0.05 && t < c.end + 0.55;
       c.el.style.opacity = on ? eo(pr(t, c.start - 0.05, c.start + 0.15)) * (1 - pr(t, c.end + 0.35, c.end + 0.55)) : 0;
-      if (on) c.ws.forEach(([sp, st]) => {
-        const p = pr(t, st - 0.02, st + 0.1);
-        if (S.captions === 'karaoke') { const now = t >= st && t < st + 0.38; sp.style.opacity = 0.35 + 0.65 * p; sp.style.color = now ? 'var(--a)' : ''; sp.style.transformOrigin = '0 70%'; sp.style.transform = now ? 'scale(1.08)' : ''; }
-        else if (S.captions === 'mono') sp.style.opacity = p > 0 ? 1 : 0;
+      if (on) c.ws.forEach(([sp, st, en, num]) => {
+        const p = pr(t, st - 0.02, st + 0.1); const now = t >= st && t < Math.max(en, st + 0.25);
+        const k = S.captions;
+        if (k === 'karaoke') { sp.style.opacity = 0.35 + 0.65 * p; sp.style.color = now ? 'var(--a)' : ''; sp.style.transformOrigin = '0 70%'; sp.style.transform = now ? 'scale(1.08)' : ''; }
+        else if (k === 'mono') sp.style.opacity = p > 0 ? 1 : 0;
+        else if (k === 'highlight') { sp.style.opacity = 0.45 + 0.55 * p; sp.style.background = now ? 'var(--a)' : 'transparent'; sp.style.color = now ? 'var(--ai)' : ''; sp.style.transform = now ? 'scale(1.06)' : ''; }
+        else if (k === 'outline') { const q = eo(pr(t, st - 0.02, st + 0.08)); sp.style.opacity = q; sp.style.transform = `scale(${0.9 + 0.1 * q})`; }
+        else if (k === 'typewriter') { const q = pr(t, st, Math.max(st + 0.12, Math.min(en, st + 0.45))); sp.style.clipPath = `inset(0 ${(1 - q) * 100}% 0 0)`; }
+        else if (k === 'quiet') sp.style.opacity = 1;
         else sp.style.opacity = 0.32 + 0.68 * p;
+        // stat pop: a number lands bigger and in the accent while it is being said
+        if (num && k !== 'quiet' && k !== 'mono') { const pop = now ? 1 - pr(t, st + 0.25, st + 0.5) * 0.5 : 0; sp.style.transform = `scale(${1 + 0.22 * pop})`; if (k !== 'highlight') sp.style.color = pop ? 'var(--a)' : ''; sp.style.transformOrigin = '50% 70%'; }
       });
     });
     if (grains.length) gx.putImageData(grains[Math.floor(t * 24) % 6], 0, 0);

@@ -24,7 +24,7 @@ await new Promise((r) => srv.listen(0, '127.0.0.1', r)); const port = srv.addres
 const b = await chromium.launch({ executablePath: (process.env.TRUECUT_CHROMIUM || process.env.NICK_MOTION_CHROMIUM) || undefined });
 fs.mkdirSync(out, { recursive: true });
 for (const preset of presets) {
-  const comp = { ...base, scenes, style: { preset } };
+  const comp = { ...base, scenes, style: { preset, ...(process.env.QA_CAPTIONS ? { captions: process.env.QA_CAPTIONS } : {}) } };
   const L = layout(comp);
   const pg = await b.newPage({ viewport: { width: dims[0], height: dims[1] } });
   const errs = []; pg.on('pageerror', (e) => errs.push(e.message)); pg.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });

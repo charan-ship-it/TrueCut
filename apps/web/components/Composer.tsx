@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { I } from './icons';
 import { detectSources, type Attachment } from '@truecut/shared/detect';
-import { DIRECTIONS } from '@truecut/engine/styles.js';
+import { DIRECTIONS, CAPTION_STYLES } from '@truecut/engine/styles.js';
 
 export type Options = { kind: string; length: number; formats: string[]; preset: string };
 export const KINDS = [
@@ -20,6 +20,7 @@ const SLASH = [
   { c: '/angles', d: 'Pitch me three new angles' },
   { c: '/storyboard', d: 'Rewrite the storyboard' },
   ...Object.entries(DIRECTIONS).map(([k, d]: any) => ({ c: `/direction ${k}`, d: d.label + ', ' + d.vibe.split('.')[0].toLowerCase() })),
+  ...Object.entries(CAPTION_STYLES).map(([k, d]) => ({ c: `/captions ${k}`, d: `Captions: ${d.split('.')[0].toLowerCase()}` })),
 ];
 
 export default function Composer({ onSend, busy, placeholder, options, setOptions, autoFocus, compact }: {

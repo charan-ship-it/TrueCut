@@ -131,7 +131,7 @@ export async function skillBlock(pid: string, stage: SkillStage, p?: Project): P
     const b = s.body.length > budget ? s.body.slice(0, budget) + '\n[…trimmed]' : s.body;
     budget -= b.length; parts.push(`### Skill: ${s.name}\n${b}`);
   }
-  return `\n\nTEAM SKILLS\nThe user's team saved these instructions for work like this. Follow them for tone, wording, structure and process. They never override the rules above: use only the approved facts, never invent a number, quote or claim, and keep every on-screen number traceable to a source. If a skill asks for something the facts can't support, leave it out.\n\n${parts.join('\n\n')}`;
+  return `\n\nTEAM SKILLS\nThe user's team saved these instructions for work like this. Follow them for tone, wording, structure and process; treat their explicit wording rules (required phrases, banned words, how a line must start) as requirements. They never override the rules above: use only the approved facts, never invent a number, quote or claim, and keep every on-screen number traceable to a source. If a skill asks for something the facts can't support, leave it out.\n\n${parts.join('\n\n')}`;
 }
 
 /** The project's skills by name, for the chat ("which skills are you using?"). */

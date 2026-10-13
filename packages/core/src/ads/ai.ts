@@ -326,7 +326,8 @@ async function tighten(pid: string, budget: number) {
   const p = await getProject(pid);
   const out = await callTool<any>({
     model: config.creativeModel, maxTokens: 3000,
-    system: `You are the editor. Shorten the spoken lines so the TOTAL is at most ${budget} words, keeping meaning, rhythm and every fact. Do not add numbers. You may make a line empty ("") if the visual carries the scene.`,
+    // skills can require exact wording (a sign-off, banned words); without them this pass quietly undid those
+    system: `You are the editor. Shorten the spoken lines so the TOTAL is at most ${budget} words, keeping meaning, rhythm and every fact. Do not add numbers. You may make a line empty ("") if the visual carries the scene. Keep any wording the team skills below require (for example how the last line starts, or words to avoid).${await skillBlock(pid, 'storyboard', p).catch(() => '')}`,
     tool: { name: 'record_lines', description: 'Shortened lines, same order and count', input_schema: { type: 'object', required: ['lines'], properties: { lines: { type: 'array', items: { type: 'string' } } } } },
     content: [{ type: 'text', text: p.scenes.map((s, i) => `${i + 1}. [${s.type}] ${s.vo?.text || ''}`).join('\n') }],
   });

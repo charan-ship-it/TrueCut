@@ -354,7 +354,9 @@ async function render(pid: string, formats: FormatId[] | undefined, jobId: strin
   const fresh = p.renders.filter((r) => !before.has(r.id));
   await makePoster(pid, fresh);
   await pr.finish('Rendered');
-  await post(pid, { role: 'nick', text: 'Done. Here it is. Want a variation? I can change the look, tighten it, or cut a 15-second version.', cards: [{ kind: 'render', ids: fresh.map((r) => r.id) }], replies: ['Cut a 15s version', 'Try another look', 'Make it punchier'] });
+  // offer the other length, not the one we just made
+  const alt = p.intake.length > 20 ? 15 : 30;
+  await post(pid, { role: 'nick', text: `Done. Here it is. Want a variation? I can change the look, tighten it, or cut a ${alt}-second version.`, cards: [{ kind: 'render', ids: fresh.map((r) => r.id) }], replies: [`Cut a ${alt}s version`, 'Try another look', 'Make it punchier'] });
 }
 
 async function makePoster(pid: string, fresh: { id: string; file: string; duration: number; format: string }[]) {

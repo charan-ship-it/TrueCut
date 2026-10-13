@@ -6,7 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { dbReady } from '../../../tools/test/db';
 import { createProject, getProject, getLibraryAsset, getJob, ensureDefaultWorkspace, DEFAULT_WORKSPACE_ID, closeDb, listLibrary } from '@truecut/db';
 import { projectPath } from '@truecut/storage';
-import { addCapture, attachToProject, normalizeAnalysis, suggestForProject, cleanTags } from '../src/library/library';
+import { addCapture, attachToProject, normalizeAnalysis, suggestForProject, cleanTags, saveSourceVisuals } from '../src/library/library';
+import { updateProject } from '@truecut/db';
 import { ffmpeg } from '../src/render/media';
 import os from 'node:os';
 import path from 'node:path';
@@ -84,5 +85,33 @@ describe.skipIf(!dbReady)('library pipeline', () => {
     await until(async () => (await getLibraryAsset(asset.id))?.status === 'unread');
     expect((await getLibraryAsset(asset.id))!.error).toMatch(/Anthropic API key/);
     process.env.ANTHROPIC_API_KEY = 'sk-ant-test-server-key';
+  });
+
+  it('keeps a crawled site\'s logo and screens in the Library, described and without a second read', async () => {
+    const p = await createProject('Site video');
+    fs.mkdirSync(projectPath(p.id, 'assets'), { recursive: true });
+    fs.writeFileSync(projectPath(p.id, 'assets/logo.png'), await png('navy', 240, 80));
+    fs.writeFileSync(projectPath(p.id, 'assets/shot.png'), await png('teal', 1280, 800));
+    fs.writeFileSync(projectPath(p.id, 'assets/off.png'), await png('gray', 1280, 800));
+    fs.writeFileSync(projectPath(p.id, 'assets/icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+    await updateProject(p.id, (pp) => {
+      pp.intake.productName = 'Acme Flow';
+      pp.sources.push({ id: 'sw', kind: 'url', ref: 'https://www.acmeflow.example', label: 'acmeflow', addedAt: 'x', status: 'ready', chars: 0 } as any);
+      pp.visuals.push({ id: 'v1', file: 'assets/logo.png', w: 240, h: 80, origin: 'https://www.acmeflow.example/logo.png', sourceId: 'sw', kind: 'logo', use: false } as any);
+      pp.visuals.push({ id: 'v2', file: 'assets/shot.png', w: 1280, h: 800, origin: 'https://www.acmeflow.example/pricing @ 0px', sourceId: 'sw', kind: 'screenshot', use: true, description: 'Pricing page with three plans' } as any);
+      pp.visuals.push({ id: 'v3', file: 'assets/off.png', w: 1280, h: 800, origin: 'https://www.acmeflow.example/ @ 860px', sourceId: 'sw', kind: 'screenshot', use: false } as any);
+      pp.visuals.push({ id: 'v4', file: 'assets/icon.svg', w: 24, h: 24, origin: 'https://www.acmeflow.example/i.svg', sourceId: 'sw', kind: 'logo', use: true } as any);
+    });
+    expect(await saveSourceVisuals(p.id, DEFAULT_WORKSPACE_ID, null)).toBe(2); // logo + the used screen; the switched-off screen and the SVG stay out
+    expect(await saveSourceVisuals(p.id, DEFAULT_WORKSPACE_ID, null)).toBe(0); // the same images again are not duplicated
+    const rows = (await listLibrary(DEFAULT_WORKSPACE_ID, {})).filter((r: any) => r.source === 'website' && r.product === 'Acme Flow');
+    expect(rows.map((r: any) => r.title).sort()).toEqual(['Acme Flow logo', 'Pricing page with three plans']);
+    expect(rows.every((r: any) => r.status === 'ready' && r.domain === 'acmeflow.example')).toBe(true);
+    expect(rows.find((r: any) => r.title === 'Pricing page with three plans')!.url).toBe('https://www.acmeflow.example/pricing');
+    // a video that already reads this site isn't offered them back; one that doesn't (a founder talk about Acme Flow) is
+    expect((await suggestForProject(p.id, DEFAULT_WORKSPACE_ID)).some((r) => r.source === 'website')).toBe(false);
+    const talk = await createProject('Acme Flow talk');
+    await updateProject(talk.id, (pp) => { pp.intake.productName = 'Acme Flow'; });
+    expect((await suggestForProject(talk.id, DEFAULT_WORKSPACE_ID)).filter((r) => r.source === 'website').length).toBe(2);
   });
 });

@@ -2,12 +2,12 @@
 // card) runs as one background job that advances the project and posts messages + rich cards to the
 // project's chat. Claude interprets free-form messages; a rule-based interpreter keeps it usable without a key.
 import '../system/context';
-import { attachToProject, suggestForProject } from '../library/library';
+import { attachToProject, suggestForProject, saveSourceVisuals } from '../library/library';
 import { projectMeta } from '@truecut/db';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config, ROOT } from '@truecut/config';
-import { getProject, newId, updateProject } from '@truecut/db';
+import { getProject, getJob, newId, updateProject } from '@truecut/db';
 import { projectPath } from '@truecut/storage';
 import { addSource, ingestPath, ingestText, ingestUrl, ingestStoredUpload, pathsAllowed, PATHS_OFF } from '../sources/ingest';
 import { analyze, storyboard, reviseScene, callTool } from '../ads/ai';
@@ -180,6 +180,10 @@ async function intake(pid: string, items: Attachment[], text: string, jobId: str
   await pr.step('Pulling out facts, numbers and visuals');
   await analyze(pid, sublog(pr));
   await pr.step('Fact-checking every claim against the source');
+  if (ws && added.some((s) => s.kind === 'url')) {
+    const n = await saveSourceVisuals(pid, ws, (await getJob(jobId).catch(() => null))?.createdBy || null).catch((e) => { console.error('[library] save', e?.message); return 0; });
+    if (n) await pr.step(`Saved ${n} image${n > 1 ? 's' : ''} from the site (logo and screens) to the team Library for next time`);
+  }
   await pr.finish('Read and fact-checked');
   const q = await getProject(pid);
   if (/^Untitled video/.test(q.name) && q.intake.productName && !/^Untitled/.test(q.intake.productName)) await updateProject(pid, (pp) => { pp.name = `${q.intake.productName} video`; });

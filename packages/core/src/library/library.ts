@@ -17,7 +17,7 @@ import '../system/context';
 export const MAX_CAPTURE_BYTES = 25 * 1024 * 1024;
 const TYPES: Record<string, { ext: string; mime: string }> = { png: { ext: 'png', mime: 'image/png' }, jpg: { ext: 'jpg', mime: 'image/jpeg' }, webp: { ext: 'webp', mime: 'image/webp' } };
 
-export type CaptureMeta = { title?: string; url?: string; product?: string; tags?: string[]; capturedAt?: string; source?: 'extension' | 'upload' };
+export type CaptureMeta = { title?: string; url?: string; product?: string; tags?: string[]; capturedAt?: string; source?: 'extension' | 'upload' | 'website' };
 
 const clip = (s: unknown, n: number) => (typeof s === 'string' ? s.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, n) : '');
 export function domainOf(url?: string | null) { try { return url ? new URL(url).hostname.toLowerCase().replace(/^www\./, '') : null; } catch { return null; } }
@@ -36,8 +36,9 @@ export function cleanTags(tags: unknown): string[] {
   return [...new Set(arr.map((t) => clip(String(t), 30).toLowerCase()).filter(Boolean))].slice(0, 12);
 }
 
-/** Validate and store a capture, then queue it to be read. Returns the asset (or the existing identical one). */
-export async function addCapture(o: { workspaceId: string; userId: string | null; data: Buffer; meta: CaptureMeta }) {
+/** Validate and store a capture, then queue it to be read. Returns the asset (or the existing identical one).
+ *  With `analysis` (an image TrueCut already understands, e.g. from a crawled site) it is stored as read. */
+export async function addCapture(o: { workspaceId: string; userId: string | null; data: Buffer; meta: CaptureMeta; analysis?: LibraryAnalysis }) {
   if (!o.data?.length) throw new UserFacingError('The capture is empty.', 'empty');
   if (o.data.length > MAX_CAPTURE_BYTES) throw new UserFacingError('That image is over 25 MB. Capture a smaller area or a single page.', 'too_large');
   let dim: { width?: number; height?: number; type?: string };
@@ -57,8 +58,8 @@ export async function addCapture(o: { workspaceId: string; userId: string | null
   try {
     asset = await createLibraryAsset({
       id, workspaceId: o.workspaceId, createdBy: o.userId, title: clip(o.meta.title, 200) || (url ? domainOf(url) || '' : '') || 'Screenshot',
-      url, domain: domainOf(url), product: clip(o.meta.product, 60) || null, tags: cleanTags(o.meta.tags), source: o.meta.source === 'extension' ? 'extension' : 'upload',
-      file, mime: t.mime, w: dim.width, h: dim.height, bytes: o.data.length, sha256: sha, status: 'pending',
+      url, domain: domainOf(url), product: clip(o.meta.product, 60) || null, tags: cleanTags(o.meta.tags), source: o.meta.source === 'extension' || o.meta.source === 'website' ? o.meta.source : 'upload',
+      file, mime: t.mime, w: dim.width, h: dim.height, bytes: o.data.length, sha256: sha, status: o.analysis ? 'ready' : 'pending', analysis: o.analysis || null,
       capturedAt: o.meta.capturedAt && !isNaN(Date.parse(o.meta.capturedAt)) ? new Date(o.meta.capturedAt) : new Date(),
     });
   } catch (e: any) {
@@ -66,8 +67,33 @@ export async function addCapture(o: { workspaceId: string; userId: string | null
     if (/library_ws_sha_idx|duplicate key/i.test(e?.message || '')) { await deleteLibraryFiles(o.workspaceId, [file]).catch(() => {}); const d = await findBySha(o.workspaceId, sha); if (d) return { asset: d, duplicate: true }; }
     throw e;
   }
-  await enqueue('library_read', null, { assetId: id, workspaceId: o.workspaceId }, { createdBy: o.userId });
+  if (!o.analysis) await enqueue('library_read', null, { assetId: id, workspaceId: o.workspaceId }, { createdBy: o.userId });
   return { asset, duplicate: false };
+}
+
+/** After a site is read, keep its logo and the best screens in the team Library (described, tagged
+ *  "website"), so the next video, a founder talk or anyone on the team can use them without
+ *  re-attaching. Public pages, already described by the analysis: no second read. Returns how many
+ *  are new. Images the Library can't hold (SVG, tiny icons) are skipped. */
+export async function saveSourceVisuals(pid: string, workspaceId: string, userId: string | null, max = 12) {
+  const p = await getProject(pid);
+  const urlSrc = new Map(p.sources.filter((s) => s.kind === 'url' && s.status === 'ready').map((s) => [s.id, s]));
+  const product = [p.intake.productName, p.intake.brandName].find((n) => n && !/^untitled/i.test(n)) || '';
+  const pick = p.visuals.filter((v) => v.sourceId && urlSrc.has(v.sourceId) && (v.kind === 'logo' || v.use))
+    .sort((a, b) => Number(b.kind === 'logo') - Number(a.kind === 'logo')).slice(0, max);
+  let added = 0;
+  for (const v of pick) {
+    const src = urlSrc.get(v.sourceId!)!;
+    const page = /^https?:\/\//.test(v.origin) ? v.origin.split(' @ ')[0] : /^https?:/.test(src.ref) ? src.ref : 'https://' + src.ref;
+    try {
+      const data = fs.readFileSync(projectPath(pid, v.file));
+      const what = v.kind === 'logo' ? `${product || domainOf(page) || 'Brand'} logo` : clip(v.description, 120) || `${product || domainOf(page)} website`;
+      const r = await addCapture({ workspaceId, userId, data, meta: { title: what, url: page, product, tags: [v.kind, 'website'], source: 'website' },
+        analysis: { summary: clip(v.description, 400) || what, kind: v.kind === 'logo' ? 'other' : 'landing', text: '', numbers: [], sensitive: { has: false, kinds: [] }, product } });
+      if (!r.duplicate) added++;
+    } catch { /* not an image the Library takes (e.g. SVG): fine, it stays in this video */ }
+  }
+  return added;
 }
 
 const READ_TOOL = {
@@ -212,5 +238,6 @@ export async function suggestForProject(pid: string, workspaceId: string, extraN
   const domains = p.sources.filter((s) => s.kind === 'url').map((s) => domainOf(/^https?:/.test(s.ref) ? s.ref : 'https://' + s.ref)).filter(Boolean) as string[];
   const names = [p.intake.productName, p.intake.brandName, ...extraNames].filter((n) => n && !/^untitled/i.test(n)) as string[];
   const rows = await findLibraryMatches(workspaceId, { domains, names });
-  return rows.filter((r) => !used.has(r.id));
+  // shots TrueCut saved from a site this video already reads would only duplicate what the crawl got
+  return rows.filter((r) => !used.has(r.id) && !(r.source === 'website' && r.domain && domains.includes(r.domain)));
 }

@@ -151,7 +151,7 @@ video{width:100%;border-radius:var(--rs);background:#000;display:block}
 .tag i{width:7px;height:7px;border-radius:2px;background:var(--pa,var(--a))}
 
 /* ─── composer ─── */
-.composer{width:min(760px,100%);background:color-mix(in srgb,var(--panel) 88%,transparent);border:1px solid var(--line2);border-radius:22px;box-shadow:var(--shadow),0 0 0 6px rgba(var(--ar),.0);backdrop-filter:blur(18px);transition:box-shadow .25s var(--ease),border-color .25s;position:relative}
+.composer{position:relative;z-index:20;width:min(760px,100%);background:color-mix(in srgb,var(--panel) 88%,transparent);border:1px solid var(--line2);border-radius:22px;box-shadow:var(--shadow),0 0 0 6px rgba(var(--ar),.0);backdrop-filter:blur(18px);transition:box-shadow .25s var(--ease),border-color .25s;position:relative}
 .composer.focus{border-color:rgba(var(--ar),.55);box-shadow:var(--shadow),0 0 0 5px rgba(var(--ar),.1)}
 .composer.over{border-color:var(--a);box-shadow:var(--shadow),0 0 0 8px rgba(var(--ar),.16)}
 .composer textarea{background:transparent;border:0;box-shadow:none!important;resize:none;min-height:56px;max-height:240px;font-size:15.5px;padding:16px 18px 6px;line-height:1.5}

@@ -23,7 +23,7 @@ export default function Preview({ p, lay, bindSeek }: { p: Project; lay: any; bi
       if (m.type === 'nm:want') { post({ type: 'nm:comp', comp }); }
       if (m.type === 'nm:ready') { setReady(true); post({ type: 'nm:seek', t }); }
       if (m.type === 'nm:time') setT(m.t);
-      if (m.type === 'nm:ended') setPlaying(false);
+      if (m.type === 'nm:ended' || m.type === 'nm:paused') setPlaying(false);
     };
     window.addEventListener('message', on); return () => window.removeEventListener('message', on);
   }); // eslint-disable-line

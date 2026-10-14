@@ -34,6 +34,12 @@ export async function readLibraryFile(workspaceId: string, file: string): Promis
   const p = localPath(key); return fs.existsSync(p) ? fs.readFileSync(p) : null;
 }
 
+export async function libraryFileExists(workspaceId: string, file: string): Promise<boolean> {
+  const key = libraryKey(workspaceId, file);
+  if (storageDriver() === 's3') { const o = await getKey(key, 'bytes=0-0').catch(() => null); (o?.body as any)?.destroy?.(); return !!o; }
+  return fs.existsSync(localPath(key));
+}
+
 /** Response for the browser: a signed redirect with a bucket, the bytes with local storage. */
 export async function libraryFileResponse(workspaceId: string, file: string): Promise<Response> {
   const key = libraryKey(workspaceId, file);

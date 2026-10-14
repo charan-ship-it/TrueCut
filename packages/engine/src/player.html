@@ -15,6 +15,10 @@ function fit() { if (!inst || RENDER) return; const s = Math.min(innerWidth / in
 function show(err) { const e = document.getElementById('err'); e.style.display = 'block'; e.textContent = String(err && err.stack || err); }
 async function load(c) {
   try {
+    // a re-mount drops the old preview from the page, but a detached <video> keeps playing its sound: stop it first
+    if (media) { try { media.pause(); } catch {} }
+    if (audio) { try { audio.pause(); } catch {} }
+    if (playing) { playing = false; parent.postMessage({ type: 'nm:paused' }, '*'); }
     comp = c; const m = c && c.mode === 'talk' ? mountTalk : mountAd; inst = m(wrap, c, { format, assetBase: q.get('assetBase') || '', fontBase: './fonts/', render: RENDER });
     if (RENDER && c && c.mode === 'talk') { document.documentElement.style.background = 'transparent'; document.body.style.background = 'transparent'; }
     media = inst.media || null; if (media) { media.addEventListener('ended', () => { playing = false; parent.postMessage({ type: 'nm:ended' }, '*'); }); }
@@ -35,10 +39,19 @@ function tick() {
 window.addEventListener('message', (ev) => {
   const m = ev.data || {};
   if (m.type === 'nm:comp') load(m.comp);
-  if (m.type === 'nm:audio') { audio = m.url && !media ? new Audio(m.url) : null; }
+  if (m.type === 'nm:audio') {
+    // never leave the old track playing: every message used to drop the previous Audio without pausing it, so a
+    // track that was replaced mid-play (or announced twice) kept playing after Pause
+    const url = m.url && !media ? m.url : '';
+    if (audio && audio.__url === url) return;
+    if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
+    audio = url ? new Audio(url) : null;
+    if (audio) { audio.__url = url; audio.currentTime = cur; if (playing) audio.play().catch(() => {}); }
+  }
   if (m.type === 'nm:seek' && inst) { cur = m.t; inst.render(cur); if (media) media.currentTime = cur; if (audio) audio.currentTime = cur; if (playing) { t0 = cur; tStart = performance.now(); } }
   if (m.type === 'nm:play' && inst) { if (cur >= inst.duration - 0.05) cur = 0; playing = true; t0 = cur; tStart = performance.now(); if (media) { media.currentTime = cur; media.play().catch(() => {}); } else if (audio) { audio.currentTime = cur; audio.play().catch(() => {}); } requestAnimationFrame(tick); }
   if (m.type === 'nm:pause') { playing = false; if (media) media.pause(); if (audio) audio.pause(); }
+  if (m.type === 'nm:stop') { playing = false; if (media) media.pause(); if (audio) { audio.pause(); } }
 });
 if (window.__COMP__) load(window.__COMP__);
 else if (q.get('src')) fetch(q.get('src')).then(r => r.json()).then(load).catch(show);

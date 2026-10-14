@@ -1,5 +1,5 @@
 import { getLibraryAsset } from '@truecut/db';
-import { libraryFileResponse } from '@truecut/storage';
+import { libraryFileResponse, libraryFileExists } from '@truecut/storage';
 import { requireUser, HttpError } from '@/lib/auth';
 export const dynamic = 'force-dynamic';
 
@@ -9,7 +9,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const a = await getLibraryAsset(params.id, u.workspaceId);
   if (!a) return new Response('Not found', { status: 404 });
   const thumb = new URL(req.url).searchParams.has('thumb');
-  const r = await libraryFileResponse(u.workspaceId, thumb ? `${a.id}_t.jpg` : a.file);
-  if (thumb && r.status === 404) return libraryFileResponse(u.workspaceId, a.file);
-  return r;
+  // a shot saved before thumbnails existed (or whose thumbnail step failed) shows the original instead of a broken image
+  const useThumb = thumb && (await libraryFileExists(u.workspaceId, `${a.id}_t.jpg`).catch(() => false));
+  return libraryFileResponse(u.workspaceId, useThumb ? `${a.id}_t.jpg` : a.file);
 }

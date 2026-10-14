@@ -52,12 +52,15 @@ const EXTRACT_JS = `(() => {
     if (mx - mn < 60 || mx < 80) continue; const hex = '#' + [r, g, b].map((x) => x.toString(16).padStart(2, '0')).join(''); counts[hex] = (counts[hex] || 0) + 1;
   }
   const brandColor = (Object.entries(counts).sort((a, b) => b[1] - a[1])[0] || [''])[0];
+  const cs = (el) => (el ? getComputedStyle(el) : null);
+  const bodyS = cs(document.body), h1S = cs(document.querySelector('h1')), btnS = cs(document.querySelector('button, a[class*="btn" i], a[class*="button" i]')), cardS = cs(document.querySelector('[class*="card" i]'));
+  const look = { bg: bodyS ? bodyS.backgroundColor : '', ink: bodyS ? bodyS.color : '', bodyFont: bodyS ? bodyS.fontFamily.slice(0, 90) : '', headFont: h1S ? h1S.fontFamily.slice(0, 90) : '', headWeight: h1S ? h1S.fontWeight : '', headCase: h1S ? h1S.textTransform : '', btnBg: btnS ? btnS.backgroundColor : '', btnRadius: btnS ? btnS.borderRadius : '', cardRadius: cardS ? cardS.borderRadius : '' };
   const heads = [...document.querySelectorAll('h1,h2,h3')].map((h) => (h.textContent || '').trim()).filter(Boolean).slice(0, 40);
   return { title: document.title, description: meta('description') || meta('og:description'), siteName: meta('og:site_name'),
-    themeColor: meta('theme-color'), ogImage: abs(meta('og:image')), logos, svgLogo, brandColor, heads,
+    themeColor: meta('theme-color'), ogImage: abs(meta('og:image')), logos, svgLogo, brandColor, look, heads,
     text: ((document.body && document.body.innerText) || '').slice(0, 30000), links, height: document.documentElement.scrollHeight };
 })()`;
-type Extracted = { title: string; description: string; siteName: string; themeColor: string; ogImage: string; logos: string[]; svgLogo: string; brandColor: string; heads: string[]; text: string; links: { href: string; text: string }[]; height: number };
+type Extracted = { title: string; description: string; siteName: string; themeColor: string; ogImage: string; logos: string[]; svgLogo: string; brandColor: string; look: Record<string, string>; heads: string[]; text: string; links: { href: string; text: string }[]; height: number };
 async function extract(page: Page): Promise<Extracted> { return page.evaluate(EXTRACT_JS) as Promise<Extracted>; }
 
 export async function ingestUrl(pid: string, sid: string, url: string, log: Log, maxPages = 4) {
@@ -79,7 +82,7 @@ export async function ingestUrl(pid: string, sid: string, url: string, log: Log,
       const ex = await extract(page);
       pages.push({ url: page.url(), title: ex.title });
       if (pages.length === 1) {
-        meta = { siteName: ex.siteName, title: ex.title, description: ex.description, themeColor: ex.themeColor, brandColor: ex.brandColor, origin: new URL(page.url()).origin };
+        meta = { siteName: ex.siteName, title: ex.title, description: ex.description, themeColor: ex.themeColor, brandColor: ex.brandColor, look: ex.look, origin: new URL(page.url()).origin };
         const ranked = ex.links.map((l) => ({ ...l, score: PRIORITY.findIndex((k) => (l.href + ' ' + l.text).toLowerCase().includes(k)) }))
           .filter((l) => l.score >= 0).sort((a, b) => a.score - b.score);
         for (const l of ranked) if (!queue.includes(l.href)) queue.push(l.href);

@@ -21,6 +21,7 @@ import { score, wav, SR } from '../audio/synth';
 import { launchBrowser } from '../render/browser';
 import { staticServer, slug } from '../render/render';
 import { toComposition } from '@truecut/shared/compose';
+import { brandBlock } from '../brand/language';
 import { speakerBox, talkLayout, TOOLKIT_KINDS, TOOLKIT_ICONS, sanitizeMarkup, markupText } from '@truecut/engine/talk.js';
 import { FORMATS } from '@truecut/engine/timeline.js';
 import { resolveStyle } from '@truecut/engine/styles.js';
@@ -160,7 +161,7 @@ export async function planTalk(pid: string, log: Log, instruction = '') {
 5. Use the product/company name only as the speaker says it or from the facts.
 5b. Pick the music bed that fits the speaker's tone and pace (warm/reflective → piano or ambient, upbeat founder energy → bright or lofi, big-vision → cinematic, or none when the talk is intimate). The founder's own voice is always the audio; the bed just sits quietly under it.
 6. Headlines in sentence case ("When they leave", not "When They Leave"); the accent must be one of the headline's words, exactly.
-${TOOLKIT_SPEC}${await chooseSkills(pid).catch(() => null).then(() => skillBlock(pid, 'talk')).catch(() => '')}`;
+${TOOLKIT_SPEC}${await chooseSkills(pid).catch(() => null).then(() => skillBlock(pid, 'talk')).catch(() => '')}${brandBlock(p)}`;
     const planPrompt = `Brand: ${p.intake.brandName || ''} · Product: ${p.intake.productName || ''}\nSpeaker: ${p.talk.speaker.name || 'unknown'} ${p.talk.speaker.role ? '(' + p.talk.speaker.role + ')' : ''}\nAudience: ${p.intake.audience || ''}\n${instruction || p.talk.instruction ? `EDITOR'S NOTE FROM THE CUSTOMER: ${instruction || p.talk.instruction}\n` : ''}\nVISUALS AVAILABLE (for image/brand kinds):\n${vis || '—'}\n\nOTHER FACTS:\n${facts || '—'}\n\nTRANSCRIPT (word index ranges [from-to], start time, speaker) — total ${fmtDur(media.duration)}, TARGET ${target}s:\n${sents.map((s) => `[${s.from}-${s.to}] (${fmtT(s.s)}, ${(s.e - s.s).toFixed(1)}s${s.sp && media.speakers.length > 1 ? ' ' + s.sp : ''}) ${s.text}`).join('\n')}\n\nCall record_edit.`;
     out = await callTool<any>({ model: config.creativeModel, maxTokens: 12000, system: sys, tool: PLAN_TOOL, content: [{ type: 'text', text: planPrompt }] });
     // hard length discipline: send the edit back until it fits the target
@@ -275,7 +276,7 @@ export async function reviseBeat(pid: string, index: number, instruction: string
   if (!config.anthropicKey) throw new MissingKey('anthropic', 'Revising a beat');
   const words = loadWords(pid, p.talk.media[0]);
   const said = words.slice(b.from ?? 0, (b.to ?? 0) + 1).map((w) => w.w).join(' ');
-  const out = await callTool<any>({ model: config.creativeModel, maxTokens: 2500, system: `You are the explainer animator. Redesign ONE beat's headline/accent/sub/illustration per the instruction. Numbers only if spoken.\n${TOOLKIT_SPEC}${await skillBlock(pid, 'talk', p).catch(() => '')}`,
+  const out = await callTool<any>({ model: config.creativeModel, maxTokens: 2500, system: `You are the explainer animator. Redesign ONE beat's headline/accent/sub/illustration per the instruction. Numbers only if spoken.\n${TOOLKIT_SPEC}${await skillBlock(pid, 'talk', p).catch(() => '')}${brandBlock(await getProject(pid))}`,
     tool: { name: 'record_beat', description: 'the revised beat', input_schema: { type: 'object', required: ['headline', 'accent', 'visual'], properties: { headline: { type: 'string' }, accent: { type: 'string' }, sub: { type: 'string' }, visual: { type: 'object' } } } },
     content: [{ type: 'text', text: `The speaker says during this beat: "${said}"\nCurrent: ${JSON.stringify({ headline: b.headline, accent: b.accent, sub: b.sub, visual: b.visual })}\nInstruction: ${instruction}` }] });
   await updateProject(pid, (pp) => { const x = pp.talk.beats[index]; if (x) Object.assign(x, { headline: String(out.headline || x.headline).slice(0, 40), accent: out.accent || x.accent, sub: out.sub, visual: sanitizeVisual(out.visual) }); });

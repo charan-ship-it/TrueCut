@@ -22,6 +22,7 @@ import { ffmpeg } from '../render/media';
 import { checkScenes } from '@truecut/shared/facts';
 import { defineHandler, enqueue, isBusy, type Log } from '@truecut/queue';
 import { DIRECTIONS, CAPTIONS, CAPTION_STYLES } from '@truecut/engine/styles.js';
+import { deriveBrandLanguage, dropBrandLook, applyBrandLanguage } from '../brand/language';
 import { UserFacingError } from '../system/errors';
 import { runAgent, sdkEnabled, z, type AgentTool } from '../agent/sdk';
 import { useBuiltins, chooseSkills, skillBlock, projectSkills, toggleSkill } from '../skills/skills';
@@ -318,9 +319,18 @@ async function pickAngle(pid: string, angleId: string, jobId: string) {
   await writeStory(pid, jobId);
 }
 
+/** Learn the company's own visual language from its sources (and what the person says) and use it as the look. */
+async function matchBrand(pid: string, instruction: string, jobId: string) {
+  const pr = await progress(pid, jobId, 'Reading the brand');
+  await pr.step(instruction ? `Applying “${instruction.slice(0, 70)}”` : 'Reading the site, logo and screenshots for their visual language');
+  const l = await deriveBrandLanguage(pid, instruction);
+  await pr.finish('Brand language ready');
+  await post(pid, { role: 'nick', text: `I read the brand and I'm drawing in its own language now: **${l.mood}** ${l.shapes} Fonts: ${l.fonts.display} / ${l.fonts.body}. ${l.why} The preview has updated. Tell me what to change (“warmer”, “rounder”, “more playful”) and I'll adjust it.`, replies: ['Render it', 'Make it warmer', 'Use a preset look instead'] });
+}
+
 async function setDirection(pid: string, preset: string, jobId: string, announce: boolean) {
   if (!DIRECTIONS[preset]) throw new Error('Unknown direction');
-  await updateProject(pid, (p) => { p.style = { ...(p.style || {}), preset }; p.audioHash = undefined; });
+  await updateProject(pid, (p) => { p.style = { ...dropBrandLook(p.style || {}), preset }; p.audioHash = undefined; });
   if (announce) await post(pid, { role: 'nick', text: `Switched to **${DIRECTIONS[preset].label}**: ${DIRECTIONS[preset].vibe} The preview on the right has updated, and the music changes with it.`, replies: ['Render it', 'Make it punchier', 'Try another look'] });
 }
 
@@ -431,7 +441,7 @@ const DECIDE_TOOL = {
   input_schema: { type: 'object', required: ['reply', 'actions'], properties: {
     reply: { type: 'string', description: 'short, warm reply in plain language (1-2 sentences). Say what you are about to do.' },
     actions: { type: 'array', items: { type: 'object', required: ['do'], properties: {
-      do: { type: 'string', enum: ['revise_scene', 'restoryboard', 'set_length', 'set_brief', 'set_direction', 'propose_angles', 'render', 'delete_scene', 'set_layout', 'apply_template', 'set_captions', 'set_caption_style', 'use_skill', 'drop_skill', 'list_skills', 'recast', 'none'] },
+      do: { type: 'string', enum: ['revise_scene', 'restoryboard', 'set_length', 'set_brief', 'set_direction', 'propose_angles', 'render', 'delete_scene', 'set_layout', 'apply_template', 'match_brand', 'set_captions', 'set_caption_style', 'use_skill', 'drop_skill', 'list_skills', 'recast', 'none'] },
       skill: { type: 'string', description: 'for use_skill / drop_skill: the team skill name' },
       captionStyle: { type: 'string', enum: CAPTIONS, description: 'for set_caption_style: how the on-screen captions look' },
       layout: { type: 'string', enum: TALK_LAYOUTS }, template: { type: 'string', enum: TALK_TEMPLATES.map((x) => x.id) }, captions: { type: 'boolean' },
@@ -481,6 +491,7 @@ async function interpret(pid: string, text: string, jobId: string) {
     if (ac.do === 'set_brief' && ac.brief) { await updateProject(pid, (pp) => { Object.assign(pp.intake, ac.brief); }); changed = true; }
     if (ac.do === 'set_direction' && ac.preset) { await setDirection(pid, ac.preset, jobId, true); }
     if (ac.do === 'set_caption_style' && ac.captionStyle) await setCaptionStyle(pid, ac.captionStyle);
+    if (ac.do === 'match_brand') await matchBrand(pid, ac.instruction || '', jobId);
     if (ac.do === 'use_skill' || ac.do === 'drop_skill' || ac.do === 'list_skills') await skillAction(pid, ac.do, ac.skill);
     if (ac.do === 'propose_angles') { const angles = await proposeAngles(pid); await updateProject(pid, (pp) => { pp.angles = angles; }); await post(pid, { role: 'nick', text: 'Fresh angles:', cards: [{ kind: 'angles' }] }); }
     if (ac.do === 'restoryboard') { if (ac.instruction) await updateProject(pid, (pp) => { pp.intake.mustSay = [pp.intake.mustSay, ac.instruction].filter(Boolean).join(' · '); }); restory = true; }
@@ -543,6 +554,7 @@ async function talkAgentPlan(pid: string, p: Project, text: string): Promise<{ r
       `Length ${p.talk.duration.toFixed(0)}s (target ${p.intake.length}s). Layout ${p.talk.layout}. Template ${p.talk.template || 'none'}. Look ${p.style?.preset}. Captions ${p.talk.showCaptions === false ? 'off' : 'on'}. Music ${p.talk.music}.\nBeats:\n${p.talk.beats.map((b, i) => `${i + 1}. "${b.headline}" [${b.visual?.kind}]`).join('\n')}` },
     { name: 'list_templates', description: 'The ready-made founder-talk templates (layout, look, captions, music and formats bundled).', shape: {}, run: () => TALK_TEMPLATES.map((x) => `${x.id}: ${x.name}, ${x.tagline} (${x.layout} layout, ~${x.length}s)`).join('\n') },
     { name: 'apply_template', description: 'Apply a template and re-cut the talk with it. Use only when the person asks for a template or a ready-made style. Everything stays editable afterwards.', shape: { template: z.enum(TALK_TEMPLATES.map((x) => x.id) as [string, ...string[]]) }, run: (a) => { actions.push({ do: 'apply_template', template: a.template }); return `Queued: apply the ${a.template} template and re-cut.`; } },
+    { name: 'match_brand', description: "Learn the company's own visual language (colours, fonts, shapes, mood) from its site, logo and screenshots and use it as the look, optionally steered by what the person said (\"warmer\", \"feel like a fintech\"). Use when the person talks about their brand, or asks for a look that none of the presets is.", shape: { instruction: z.string().max(400).optional() }, run: (a) => { actions.push({ do: 'match_brand', instruction: a.instruction || '' }); return 'Queued: read the brand and apply its look.'; } },
     { name: 'set_layout', description: `Change how the speaker and graphics are arranged. ${Object.entries(LAYOUT_INFO).map(([k, v]) => `${k}: ${v}`).join(' ')}`, shape: { layout: z.enum(TALK_LAYOUTS as [string, ...string[]]) }, run: (a) => { actions.push({ do: 'set_layout', layout: a.layout }); return `Queued: ${a.layout} layout.`; } },
     { name: 'set_look', description: `Change the visual direction (colours, type, motion). Options: ${Object.entries(DIRECTIONS).map(([k, d]: any) => `${k} (${d.label})`).join(', ')}.`, shape: { direction: z.enum(Object.keys(DIRECTIONS) as [string, ...string[]]) }, run: (a) => { actions.push({ do: 'set_direction', preset: a.direction }); return `Queued: ${a.direction} look.`; } },
     { name: 'set_captions', description: 'Turn captions on or off.', shape: { on: z.boolean() }, run: (a) => { actions.push({ do: 'set_captions', captions: a.on }); return `Queued: captions ${a.on ? 'on' : 'off'}.`; } },
@@ -592,7 +604,7 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
   if (!plan && sdkEnabled()) plan = await talkAgentPlan(pid, p, text);
   if (!plan && config.anthropicKey) plan = await callTool<any>({
     model: config.model, maxTokens: 1500,
-    system: `You are Nick, the editor inside TrueCut. This project is a FOUNDER TALK: a real recording cut into a short with an illustrated panel per beat. Map the user's message to actions. "scene N" means beat N. restoryboard = re-edit the whole cut with the instruction (e.g. "start with the tribal knowledge bit", "more energy", "drop the intro"). revise_scene = redraw one beat's headline/illustration. set_layout (${TALK_LAYOUTS.join(' | ')}): ${Object.entries(LAYOUT_INFO).map(([k, v]) => `${k} = ${v}`).join(' ')} Templates (apply_template, only when the user asks for a template or a ready-made style): ${TALK_TEMPLATES.map((x) => `${x.id} = ${x.tagline}`).join('; ')}. Without a template you have full freedom: change the layout, look, captions, music, cut and individual beats as the user asks. Directions: ${Object.keys(DIRECTIONS).join(', ')}.`,
+    system: `You are Nick, the editor inside TrueCut. This project is a FOUNDER TALK: a real recording cut into a short with an illustrated panel per beat. Map the user's message to actions. "scene N" means beat N. restoryboard = re-edit the whole cut with the instruction (e.g. "start with the tribal knowledge bit", "more energy", "drop the intro"). revise_scene = redraw one beat's headline/illustration. set_layout (${TALK_LAYOUTS.join(' | ')}): ${Object.entries(LAYOUT_INFO).map(([k, v]) => `${k} = ${v}`).join(' ')} Templates (apply_template, only when the user asks for a template or a ready-made style): ${TALK_TEMPLATES.map((x) => `${x.id} = ${x.tagline}`).join('; ')}. Without a template you have full freedom: change the layout, look, captions, music, cut and individual beats as the user asks. Directions: ${Object.keys(DIRECTIONS).join(', ')}. HOW TO DECIDE THE LOOK: read what the person asks for and the kind of visual they describe, then pick. A named style or ready-made look means a template or direction. Their own company, brand or a feel no preset matches means match_brand, then draw in that language. A specific picture or idea that no tool kind covers means a freehand custom visual. Mix freely; never default to a template just because it exists.`,
     tool: DECIDE_TOOL,
     content: [{ type: 'text', text: `Length now: ${p.talk.duration.toFixed(0)}s (target ${p.intake.length}s). Layout: ${p.talk.layout}. Look: ${p.style?.preset}.\nBeats:\n${p.talk.beats.map((b, i) => `${i + 1}. "${b.headline}" [${b.visual?.kind}]`).join('\n')}\n\n${recentChat(p)}User: ${text}` }],
   });
@@ -604,6 +616,7 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
     if (ac.do === 'restoryboard') recut = { brief: recut?.brief || {}, note: ac.instruction || '' };
     if (ac.do === 'set_direction' && ac.preset) await setDirection(pid, ac.preset, jobId, true);
     if (ac.do === 'apply_template' && ac.template) { await applyTalkTemplate(pid, ac.template, jobId); return; }
+    if (ac.do === 'match_brand') { await matchBrand(pid, ac.instruction || '', jobId); relayout = false; changed = true; }
     if (ac.do === 'set_layout' && ac.layout) { await updateProject(pid, (pp) => { pp.talk.layout = ac.layout; }); relayout = true; }
     if (ac.do === 'set_captions') { await updateProject(pid, (pp) => { pp.talk.showCaptions = !!ac.captions; }); changed = true; }
     if (ac.do === 'set_music' && ac.music) { await updateProject(pid, (pp) => { pp.talk.music = ac.music; pp.talk.mix = undefined; }); relayout = true; }
@@ -633,6 +646,7 @@ function rules(text: string, p: Project): { reply: string; actions: any[] } | nu
   if (/^\/skills$|^(which|what) skills\b/.test(t)) return { reply: '', actions: [{ do: 'list_skills' }] };
   const sk = t.match(/^\/skill\s+(off\s+)?([\w-]+)$/) || t.match(/^(?:use|apply|follow)\s+(?:the\s+)?([\w-]+)\s+skill$/) || t.match(/^(drop|remove|stop using)\s+(?:the\s+)?([\w-]+)\s+skill$/);
   if (sk) { const off = /^\/skill\s+off|^(drop|remove|stop)/.test(t); return { reply: '', actions: [{ do: off ? 'drop_skill' : 'use_skill', skill: sk[sk.length - 1] }] }; }
+  if (/^\/brand\b/.test(t) || /\b(match|use|follow|read|learn)\b.{0,25}\b(our|my|their|the company'?s?|the brand'?s?)\b.{0,12}\b(brand|visual language|look and feel|identity)\b/.test(t)) return { reply: '', actions: [{ do: 'match_brand', instruction: t.replace(/^\/brand\s*/, '') }] };
   const cap = captionStyleFrom(t);
   if (cap && !/\b(on|off)\b/.test(t)) return { reply: '', actions: [{ do: 'set_caption_style', captionStyle: cap }] };
   const dir = directionFrom(t);

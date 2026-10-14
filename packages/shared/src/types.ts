@@ -184,6 +184,7 @@ export const Project = z.object({
   cast: Cast.default({}),
   chat: z.array(ChatMsg).default([]),
   skills: z.object({ ids: z.array(z.string()).default([]), decided: z.boolean().default(false), why: z.string().default('') }).default({}),   // team skills this project uses
+  brandLanguage: z.any().optional(),   // the company's visual language, learned from its own material (brand/language.ts)
   kind: z.string().default('ad'),                  // ad | explainer | launch | social
   favorite: z.boolean().default(false),
   agentBusy: z.boolean().default(false),

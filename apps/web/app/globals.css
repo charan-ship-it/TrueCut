@@ -119,8 +119,10 @@ video{width:100%;border-radius:var(--rs);background:#000;display:block}
 
 /* ─── home ─── */
 .home{height:100vh;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
-.stage{position:relative;min-height:min(86vh,820px);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:70px 24px 40px;overflow:hidden;isolation:isolate}
-.stage .backreel{position:absolute;inset:0;z-index:-2;display:flex;align-items:center;justify-content:center;gap:28px;opacity:.5;filter:saturate(1.1);pointer-events:none;transform:perspective(1400px) rotateX(18deg) translateY(250px) scale(1.12);-webkit-mask-image:linear-gradient(to bottom,transparent 0%,#000 30%,#000 70%,transparent 100%)}
+.stage{position:relative;min-height:min(86vh,820px);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:70px 24px 40px;isolation:isolate}
+/* the animated backdrop is clipped on its own, so menus that open from the prompt can extend past the hero */
+.stage .backclip{position:absolute;inset:0;overflow:hidden;z-index:-2;pointer-events:none}
+.stage .backreel{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:28px;opacity:.5;filter:saturate(1.1);pointer-events:none;transform:perspective(1400px) rotateX(18deg) translateY(250px) scale(1.12);-webkit-mask-image:linear-gradient(to bottom,transparent 0%,#000 30%,#000 70%,transparent 100%)}
 .stage .backreel iframe{border:0;border-radius:18px;background:#000;box-shadow:0 30px 80px -20px rgba(0,0,0,.8)}
 .stage .backreel .ph{border-radius:18px;background:var(--panel)}
 .stage:before{content:'';position:absolute;inset:0;z-index:-1;background:radial-gradient(ellipse 52% 40% at 50% 36%,rgba(12,11,10,.92),rgba(12,11,10,.55) 60%,transparent 100%),linear-gradient(to bottom,var(--bg) 0%,transparent 30%,transparent 75%,var(--bg) 100%)}

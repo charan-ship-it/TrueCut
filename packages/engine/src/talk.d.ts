@@ -8,3 +8,5 @@ export function talkTimeline(comp: any): any;
 export function mount(root: any, comp: any, opts?: any): any;
 export const LAYOUT_INFO: Record<string, string>;
 export function isCardLayout(lay: string): boolean;
+export function sanitizeMarkup(html: string): string;
+export function markupText(html: string): string;

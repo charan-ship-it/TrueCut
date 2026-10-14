@@ -33,3 +33,13 @@ describe('talk layouts', () => {
     expect(isCardLayout('bubble')).toBe(true); expect(isCardLayout('split')).toBe(false);
   });
 });
+
+import { sanitizeMarkup, markupText } from '@truecut/engine/talk.js';
+describe('freehand visuals', () => {
+  it('keep drawing, drop anything that could run or load', () => {
+    const out = sanitizeMarkup(`<svg onload="x()"><script>alert(1)</script><a href="http://evil.test">t</a><rect style="fill:url(http://x.test/a)"/><style>@import url(x);.a{animation:b 1s}</style><iframe src="http://x"></iframe></svg>`);
+    expect(out).not.toMatch(/script|onload|http|iframe|@import/i);
+    expect(out).toContain('animation:b 1s');
+    expect(markupText('<style>.a{width:900}</style><svg viewBox="0 0 900 700"><text x="120">Pilots</text></svg>')).toBe('Pilots');
+  });
+});

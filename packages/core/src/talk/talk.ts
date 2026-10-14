@@ -21,7 +21,7 @@ import { score, wav, SR } from '../audio/synth';
 import { launchBrowser } from '../render/browser';
 import { staticServer, slug } from '../render/render';
 import { toComposition } from '@truecut/shared/compose';
-import { speakerBox, talkLayout, TOOLKIT_KINDS, TOOLKIT_ICONS } from '@truecut/engine/talk.js';
+import { speakerBox, talkLayout, TOOLKIT_KINDS, TOOLKIT_ICONS, sanitizeMarkup, markupText } from '@truecut/engine/talk.js';
 import { FORMATS } from '@truecut/engine/timeline.js';
 import { resolveStyle } from '@truecut/engine/styles.js';
 import type { Log } from '@truecut/queue';
@@ -120,6 +120,7 @@ Motion toolkit — every beat gets ONE illustration (visual.kind + props). Draw 
 - flow: { steps: [{title ≤14, icon}] (3-5) }  → a process / pipeline
 - orbit: { icon, label ≤34 }  → something being kept/captured/centralised
 - image: { image: visualId (REQUIRED, from the list), callout? ≤30 }  → show the real product/site
+- custom: { html: "<svg viewBox='0 0 900 700'>…</svg>" (or plain HTML) with a <style> block of CSS @keyframes }  → FREEHAND: when no kind above fits the idea, DRAW it yourself. Rules: size it in a 900×700 viewBox and keep it centred with margins; use the theme colours via var(--ink), var(--a) (accent), var(--bg), var(--card), var(--mu); animate with CSS keyframes (animation: name .8s ease-out both; animation-delay: .3s) so things build in step with the sentence; thin outlines, plain shapes, short labels (≤20 chars); at most ~6000 characters; NO scripts, handlers, links or external images (a real screenshot may be used as <img data-asset="visualId">). Any number or name drawn must be one the speaker says. Use it when it makes the idea clearer than a template would (a diagram, a custom metaphor, a map of how things connect), and prefer a template kind when one fits well.
 Icons: ${TOOLKIT_ICONS.join(', ')}.`;
 
 const PLAN_TOOL = {
@@ -238,6 +239,7 @@ export async function applyPlan(pid: string, out: any, words: W[], media: Media)
 
 function sanitizeVisual(v: any) {
   const kind = TOOLKIT_KINDS.includes(v?.kind) ? v.kind : 'quote';
+  if (kind === 'custom') { const html = sanitizeMarkup(v.html || v.svg || ''); if (markupText(html).length === 0 && !/<(svg|div|img)/i.test(html)) return { kind: 'quote', text: '' }; return { kind, html }; }
   return { ...(v || {}), kind };
 }
 
@@ -249,7 +251,7 @@ export async function guardTalk(pid: string): Promise<number> {
   await updateProject(pid, (pp) => {
     pp.talk.beats = pp.talk.beats.map((b) => {
       const v = b.visual || {};
-      const txt = [b.headline, b.sub, JSON.stringify({ ...v, values: undefined, count: undefined, cols: undefined, highlight: undefined, leaving: undefined, people: undefined, from: v.kind === 'meter' && v.showValue !== false ? v.from : undefined, to: v.kind === 'meter' && v.showValue !== false ? v.to : undefined })].join(' ');
+      const txt = [b.headline, b.sub, v.kind === 'custom' ? markupText(v.html) : JSON.stringify({ ...v, values: undefined, count: undefined, cols: undefined, highlight: undefined, leaving: undefined, people: undefined, from: v.kind === 'meter' && v.showValue !== false ? v.from : undefined, to: v.kind === 'meter' && v.showValue !== false ? v.to : undefined })].join(' ');
       const nums = numbersIn(txt).filter((x) => !spoken.has(x) && !ok.has(x) && !['0', '100', '1', '2', '3', '01', '02', '03', '04'].includes(x));
       if (!nums.length) return b;
       bad += nums.length;

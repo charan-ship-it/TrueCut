@@ -62,10 +62,10 @@ function BackReel({ projects }: { projects: any[] | null }) {
       .then((x) => setComps(x.filter(Boolean) as any));
   }, [projects?.length]); // eslint-disable-line
   const slots = comps.length ? comps.map((c, i) => ({ ...c, i })) : [];
-  if (!slots.length) return <div className="backreel">{[0, 1, 2].map((i) => <div key={i} className="ph" style={{ width: 230, height: 288, background: `linear-gradient(160deg,var(--panel3),var(--bg2))`, opacity: i === 1 ? 1 : 0.6 }} />)}</div>;
+  if (!slots.length) return <div className="backclip"><div className="backreel">{[0, 1, 2].map((i) => <div key={i} className="ph" style={{ width: 230, height: 288, background: `linear-gradient(160deg,var(--panel3),var(--bg2))`, opacity: i === 1 ? 1 : 0.6 }} />)}</div></div>;
   // three tiles; the middle one larger
   const order = slots.length === 1 ? [slots[0], slots[0], slots[0]] : slots.length === 2 ? [slots[0], slots[1], slots[0]] : slots;
-  return <div className="backreel">{order.map((s, k) => <Reel key={k} comp={k === 1 ? s.comp : { ...s.comp, style: { preset: ['magazine', 'neon', 'pop'][k] } }} pid={s.id} w={k === 1 ? 300 : 230} offset={k * 3.1} />)}</div>;
+  return <div className="backclip"><div className="backreel">{order.map((s, k) => <Reel key={k} comp={k === 1 ? s.comp : { ...s.comp, style: { preset: ['magazine', 'neon', 'pop'][k] } }} pid={s.id} w={k === 1 ? 300 : 230} offset={k * 3.1} />)}</div></div>;
 }
 
 function Reel({ comp, pid, w, offset }: { comp: any; pid: string; w: number; offset: number }) {

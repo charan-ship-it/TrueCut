@@ -97,6 +97,26 @@ function mk(p, tag, cls, st, html) { const e = document.createElement(tag); if (
 function tf(e, { x = 0, y = 0, s = 1, r = 0, o, b } = {}) { e.style.transform = `translate(${x}px,${y}px) rotate(${r}deg) scale(${s})`; if (o != null) e.style.opacity = o; if (b != null) e.style.filter = b > 0.05 ? `blur(${b}px)` : 'none'; }
 const fmtN = (v, dec = 0) => Number(v).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 
+
+/** Freehand scenes (visual.kind "custom"): Nick draws the illustration himself as SVG/HTML + CSS keyframes.
+ *  The markup is untrusted model output, so it is reduced to drawing: no scripts, handlers, frames, forms or
+ *  network references. Shared by the server (before saving) and the player (before showing). */
+export function sanitizeMarkup(html) {
+  let h = String(html ?? '').slice(0, 14000);
+  h = h.replace(/<!--[\s\S]*?-->/g, '').replace(/<\s*(script|iframe|object|embed|link|meta|base|form|input|button|textarea|select|foreignObject|audio|video|canvas)\b[\s\S]*?(<\/\s*\1\s*>|$)/gi, '')
+    .replace(/<\s*\/?\s*(script|iframe|object|embed|link|meta|base|form|input|button|textarea|select|foreignObject|audio|video|canvas)\b[^>]*>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/\s(href|xlink:href|src|action|formaction)\s*=\s*("\s*(?!#|data:image\/(png|jpe?g|webp|svg\+xml)[;,])[^"]*"|'\s*(?!#|data:image\/(png|jpe?g|webp|svg\+xml)[;,])[^']*')/gi, (m, a) => (a.toLowerCase() === 'src' && /data-asset/.test(m) ? m : ''))
+    .replace(/@import[^;]*;?/gi, '').replace(/expression\s*\(/gi, '').replace(/javascript:/gi, '')
+    .replace(/url\(\s*(['"]?)\s*(?!#|data:image\/(png|jpe?g|webp);)[^)]*\)/gi, 'none')
+    .replace(/(position\s*:\s*)fixed/gi, '$1absolute');
+  return h;
+}
+/** The words a viewer can read in custom markup (for the fact check): text nodes only, never attributes or CSS. */
+export function markupText(html) {
+  return String(html ?? '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 // outline icon set (24-grid), drawn at any size
 const ICON = {
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
@@ -286,6 +306,19 @@ const TOOLKIT = {
     const img = f.querySelector('img');
     return (lt, d) => { const q = eo5(pr(lt, 0, 0.5)); tf(f, { y: (1 - q) * 40, o: q }); img.style.transform = `scale(${1.02 + 0.06 * pr(lt, 0, d)})`; if (call) { const c = eb(pr(lt, d * 0.4, d * 0.4 + 0.4)); tf(call, { s: lerp(0.7, 1, c), o: cl(c) }); } };
   },
+  // freehand: Nick's own drawing (SVG/HTML + CSS keyframes), time-driven so renders are frame-exact
+  custom(el, p, k, ctx) {
+    const box = mk(el, 'div', 'tk-custom', { left: 0, top: 0, width: k.w + 'px', height: k.h + 'px' });
+    box.innerHTML = sanitizeMarkup(p.html || p.svg || '');
+    box.querySelectorAll('img[data-asset]').forEach((im) => { im.src = ctx.assetUrl(im.getAttribute('data-asset')); im.removeAttribute('data-asset'); });
+    const svg = box.querySelector('svg'); if (svg) { svg.setAttribute('width', '100%'); svg.setAttribute('height', '100%'); if (!svg.getAttribute('preserveAspectRatio')) svg.setAttribute('preserveAspectRatio', 'xMidYMid meet'); }
+    let anims = null;
+    return (lt) => {
+      if (!anims) { anims = box.getAnimations({ subtree: true }); anims.forEach((a) => a.pause()); }
+      anims.forEach((a) => { try { a.currentTime = lt * 1000; } catch {} });
+      tf(box, { o: eo(pr(lt, 0, 0.2)) });
+    };
+  },
 };
 export const TOOLKIT_KINDS = Object.keys(TOOLKIT);
 export const TOOLKIT_ICONS = ICONS;
@@ -372,6 +405,7 @@ function talkCss(S, fontBase) {
 .tk-prog{position:absolute;left:0;height:6px;background:var(--a)}
 .tk-cap{position:absolute;left:60px;right:60px;text-align:center;font-weight:800;font-size:46px;color:#fff;text-shadow:0 3px 18px rgba(0,0,0,.6);line-height:1.15}
 .tk-cap span{opacity:.55}.tk-cap span.on{opacity:1;color:#fff}.tk-cap span.now{color:var(--a)}
+.tk-custom{position:absolute;overflow:hidden;color:var(--ink)}.tk-custom *{box-sizing:border-box}
 .tk-vid{position:absolute;overflow:hidden;background:#111}
 .tk-ring{position:absolute;border:6px solid var(--card);box-shadow:0 14px 40px rgba(0,0,0,.45);pointer-events:none}
 .tk-cap{text-wrap:balance}

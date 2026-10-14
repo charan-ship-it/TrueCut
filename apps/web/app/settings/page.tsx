@@ -310,11 +310,13 @@ const EXAMPLES = [
   { name: 'brand-voice', description: 'Use for every video for our company: how we sound, words we use and avoid.', body: '# Brand voice\n\n- Plain, confident, a little dry. Short sentences.\n- Say "teams", never "users". Say "set up", never "onboard".\n- No exclamation marks. No "revolutionary", "game-changing" or "seamless".\n- End on what the viewer can do next, in their words.' },
   { name: 'linkedin-hooks', description: 'Use for LinkedIn ads aimed at B2B buyers: how to write the first line and the hook.', body: '# LinkedIn hooks\n\n1. The first spoken line names a specific pain the buyer has this week, in under 8 words.\n2. Put the strongest real number from the facts in the first 3 seconds if there is one.\n3. Never open with the product name. Reveal it after the problem lands.\n4. Prefer a question or a contrast ("Before / after") over a statement.' },
 ];
+type Lib = { id: string; group: string; name: string; description: string; stages: string[]; body: string; added: boolean };
 type Sk = { id: string; name: string; description: string; body: string; stages: string[]; always: boolean; enabled: boolean; source: string; createdBy: string | null; mine: boolean };
 const blank = { name: '', description: '', body: '', stages: [] as string[], always: false };
 
 function Skills() {
-  const [d, setD] = useState<{ items: Sk[]; stages: { id: string; label: string }[]; limits: any } | null>(null);
+  const [d, setD] = useState<{ items: Sk[]; stages: { id: string; label: string }[]; limits: any; library: Lib[]; groups: Record<string, string> } | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const [err, setErr] = useState(''); const [edit, setEdit] = useState<(typeof blank & { id?: string }) | null>(null); const [busy, setBusy] = useState(false);
   const load = () => api('/api/skills').then(setD).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
@@ -334,6 +336,7 @@ function Skills() {
     if (bad.length) setErr(bad.join(' · '));
     setBusy(false); load();
   };
+  const addBuiltin = async (ids: string[]) => { setBusy(true); setErr(''); try { await api('/api/skills', { json: { builtin: ids } }); load(); } catch (e: any) { setErr(e.message); } setBusy(false); };
   const download = (k: Sk) => {
     const fm = `---\nname: ${k.name}\ndescription: ${JSON.stringify(k.description)}\n${k.stages.length ? `stages: [${k.stages.join(', ')}]\n` : ''}${k.always ? 'always: true\n' : ''}---\n\n`;
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([fm + k.body + '\n'], { type: 'text/markdown' })); a.download = `${k.name}.SKILL.md`; a.click(); URL.revokeObjectURL(a.href);
@@ -374,9 +377,9 @@ function Skills() {
           </form>
         </div>
       )}
-      {!d.items.length && !edit ? <div className="dim small">No skills yet. Add one, or import a SKILL.md.</div> : d.items.map((k) => (
+      {!d.items.length && !edit ? <div className="dim small">No skills yet. Add one, import a SKILL.md, or pick pre-built ones from the library below.</div> : d.items.map((k) => (
         <div key={k.id} className="ccard" style={{ opacity: k.enabled ? 1 : 0.6 }}>
-          <div className="hd"><h3 className="tc" style={{ fontSize: 14 }}>{k.name}</h3>{k.always && <span className="pill acc">Always on</span>}{!k.enabled && <span className="pill neu">Off</span>}{k.source === 'import' && <span className="pill neu">Imported</span>}<span className="grow" />
+          <div className="hd"><h3 className="tc" style={{ fontSize: 14 }}>{k.name}</h3>{k.always && <span className="pill acc">Always on</span>}{!k.enabled && <span className="pill neu">Off</span>}{k.source === 'import' && <span className="pill neu">Imported</span>}{k.source === 'builtin' && <span className="pill neu">From library</span>}<span className="grow" />
             <button className="btn sm ghost" onClick={() => patch(k, { enabled: !k.enabled })}>{k.enabled ? 'Turn off' : 'Turn on'}</button>
             <button className="btn sm ghost" onClick={() => download(k)} title="Download as SKILL.md"><I.download size={14} /></button>
             <button className="btn sm ghost" onClick={() => { setEdit({ id: k.id, name: k.name, description: k.description, body: k.body, stages: k.stages, always: k.always }); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><I.edit size={14} /></button>
@@ -388,6 +391,29 @@ function Skills() {
           </div>
         </div>
       ))}
+      <div className="ccard">
+        <div className="hd"><I.star size={15} /><h3>Skill library</h3><span className="grow" /><span className="xs muted">Pre-built formats. Add one and it becomes your team's to edit.</span></div>
+        <div className="bd col" style={{ gap: 18 }}>
+          {Object.entries(d.groups).map(([g, label]) => {
+            const items = d.library.filter((x) => x.group === g); const left = items.filter((x) => !x.added);
+            return (
+              <div key={g} className="col" style={{ gap: 8 }}>
+                <div className="row"><b className="small">{label}</b><span className="grow" />{left.length > 0 && <button className="btn sm ghost" disabled={busy} onClick={() => addBuiltin(left.map((x) => x.id))}>Add all {left.length}</button>}</div>
+                {items.map((x) => (
+                  <div key={x.id} className="keyrow">
+                    <div className="row" style={{ alignItems: 'flex-start' }}>
+                      <div className="grow"><div className="tc" style={{ fontSize: 13 }}>{x.name}</div><div className="xs muted">{x.description}</div></div>
+                      <button className="btn sm ghost" onClick={() => setOpen(open === x.id ? null : x.id)}>{open === x.id ? 'Hide' : 'Preview'}</button>
+                      {x.added ? <span className="pill good">Added</span> : <button className="btn sm" disabled={busy} onClick={() => addBuiltin([x.id])}>Add</button>}
+                    </div>
+                    {open === x.id && <pre className="xs" style={{ whiteSpace: 'pre-wrap', margin: '10px 0 0', padding: 12, background: 'var(--bg2)', borderRadius: 8, fontFamily: 'var(--fm, monospace)' }}>{x.body}</pre>}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

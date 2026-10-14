@@ -3,7 +3,23 @@ import http from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { dbReady } from '../../../tools/test/db';
 import { createProject, getProject, ensureDefaultWorkspace, DEFAULT_WORKSPACE_ID, closeDb, createSkill, listSkills, deleteSkill } from '@truecut/db';
-import { parseSkillMd, skillProblem, slugify, chooseSkills, skillBlock, toggleSkill } from '../src/skills/skills';
+import { parseSkillMd, skillProblem, slugify, chooseSkills, skillBlock, toggleSkill, SKILL_STAGES } from '../src/skills/skills';
+import { BUILTIN_SKILLS, BUILTIN_GROUPS } from '../src/skills/builtin';
+
+describe('pre-built skills', () => {
+  it('are valid, unique and fit in one prompt together with a few others', () => {
+    const names = new Set(BUILTIN_SKILLS.map((s) => s.name));
+    expect(names.size).toBe(BUILTIN_SKILLS.length);
+    for (const s of BUILTIN_SKILLS) {
+      expect(skillProblem(s), s.name).toBeNull();
+      expect(s.name).toBe(slugify(s.name));
+      expect(Object.keys(BUILTIN_GROUPS)).toContain(s.group);
+      for (const st of s.stages) expect(SKILL_STAGES as readonly string[]).toContain(st);
+      expect(s.body.length).toBeLessThan(2000);
+      expect(s.description.length).toBeLessThan(300);
+    }
+  });
+});
 
 describe('SKILL.md parsing', () => {
   it('reads frontmatter, block scalars and lists', () => {

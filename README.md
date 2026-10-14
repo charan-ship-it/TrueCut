@@ -1,6 +1,6 @@
 # TrueCut
 
-**Drop a link. Get a film.** TrueCut is a chat-first studio that turns real material into short, motion-rich videos for LinkedIn and Instagram, and never puts anything on screen it can't trace back to a source.
+**Every frame traces to a source.** TrueCut is a chat-first studio that turns real material into short, motion-rich videos for LinkedIn and Instagram, and never puts anything on screen it can't trace back to a source.
 
 Two kinds of video, one conversation with **Nick**, the AI director:
 

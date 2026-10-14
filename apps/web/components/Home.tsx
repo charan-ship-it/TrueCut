@@ -35,7 +35,7 @@ export default function Home() {
       <section className="stage">
         <BackReel projects={projects} />
         <div className="eyebrow"><span className="rec" />Nick is ready to direct</div>
-        <h1 className="headline serif">Every frame<br /><i>traces to a source.</i></h1>
+        <h1 className="headline serif">Real sources.<br /><i>Real motion.</i></h1>
         <p className="lede">Point Nick at your site, repo or raw recording. He pulls the real facts, pitches three ways to tell the story, then cuts the motion-graphics video, and nothing hits the screen that he cannot prove.</p>
         <Composer onSend={send} busy={busy} options={opts} setOptions={setOpts} autoFocus placeholder={me?.local ? 'Paste your website, a repo path, or describe the video you want…' : 'Paste your website, upload files, or describe the video you want…'} />
         {err && <div className="issue error" style={{ marginTop: 12 }}>{err}</div>}

@@ -1,7 +1,7 @@
 import './globals.css';
 import Shell from '../components/Shell';
 import { fontFaceCss } from '@truecut/engine/styles.js';
-export const metadata = { title: 'TrueCut', description: 'Fact-checked motion videos and founder-talk edits, built from your real sources and directed in a conversation.', openGraph: { title: 'TrueCut', description: 'Every frame traces to a source.', images: ['/brand/truecut-social.png'] }, twitter: { card: 'summary_large_image', images: ['/brand/truecut-social.png'] } };
+export const metadata = { title: 'TrueCut', description: 'Fact-checked motion videos and founder-talk edits, built from your real sources and directed in a conversation.', openGraph: { title: 'TrueCut', description: 'Real sources. Real motion.', images: ['/brand/truecut-social.png'] }, twitter: { card: 'summary_large_image', images: ['/brand/truecut-social.png'] } };
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" data-theme="dark" suppressHydrationWarning>

@@ -5,9 +5,26 @@ import { I } from './icons';
 import { fileUrl } from './api';
 import { SCENE_TYPES } from '@truecut/engine/timeline.js';
 import { DIRECTIONS } from '@truecut/engine/styles.js';
+import { TALK_TEMPLATES } from '@truecut/core/talk/templates';
 import type { ChatMsg } from '@truecut/shared/types';
 
 type P = { c: any; ctx: Ctx; send: (a: any) => void; busy: boolean; msgId: string; latest: boolean; setPreview: (s: string | null) => void; chat: ChatMsg[] };
+function LayoutGlyph({ v }: { v: string }) {
+  const sp = { position: 'absolute' as const };
+  const paper = '#EFE7D9', dark = '#3a3631', face = '#C9A27E';
+  return (
+    <span style={{ width: 26, height: 40, borderRadius: 4, border: '1.5px solid var(--line3)', position: 'relative', overflow: 'hidden', background: v === 'split' ? 'var(--panel3)' : dark, flex: 'none' }}>
+      {v === 'split' && <i style={{ ...sp, left: 0, right: 0, top: 0, height: 24, background: paper }} />}
+      {v === 'overlay' && <i style={{ ...sp, left: 3, right: 3, top: 4, height: 14, background: paper, borderRadius: 2 }} />}
+      {(v === 'bubble' || v === 'pip') && <i style={{ ...sp, left: 2, right: 2, top: 2, height: 26, background: paper, borderRadius: 2 }} />}
+      {v === 'bubble' && <i style={{ ...sp, left: 1, top: 20, width: 13, height: 13, background: face, borderRadius: '50%', border: '1.5px solid #fff' }} />}
+      {v === 'pip' && <i style={{ ...sp, right: 1, top: 18, width: 10, height: 15, background: face, borderRadius: 2, border: '1.5px solid #fff' }} />}
+      {v === 'framed' && <><i style={{ ...sp, left: 0, right: 0, top: 0, height: 18, background: paper }} /><i style={{ ...sp, left: 2, right: 2, bottom: 2, height: 18, background: face, borderRadius: 3 }} /></>}
+      {v === 'clean' && <i style={{ ...sp, left: 3, right: 3, bottom: 5, height: 5, background: '#fff', opacity: 0.8, borderRadius: 1 }} />}
+    </span>
+  );
+}
+
 export function Card(props: P) {
   switch (props.c.kind) {
     case 'progress': return <Progress {...props} />;
@@ -315,10 +332,15 @@ function TalkBrief({ ctx, send, busy, chat, msgId }: P) {
           <label className="f">Their role<input value={b.role} onChange={(e) => set('role', e.target.value)} placeholder="e.g. Founder, AI Xccelerate" /></label>
         </div>
         <label className="f">Length<Seg k="length" opts={[[15, '15s'], [30, '30s'], [45, '45s'], [60, '60s'], [90, '90s']]} /></label>
+        <label className="f">Template <span className="xs dim">(optional: or leave it off and let Nick edit freely)</span><div className="row wrap" style={{ gap: 6 }}>
+          <button onClick={() => setB((x: any) => ({ ...x, template: undefined }))} className="btn sm" style={{ borderColor: !b.template ? 'var(--a)' : undefined, background: !b.template ? 'var(--at)' : undefined }}>None</button>
+          {TALK_TEMPLATES.map((t) => (
+            <button key={t.id} title={t.tagline} onClick={() => setB((x: any) => ({ ...x, template: t.id, layout: t.layout, music: t.music, length: Math.min(t.length, x.length || t.length), captions: t.captions !== 'none' }))} className="btn sm" style={{ borderColor: b.template === t.id ? 'var(--a)' : undefined, background: b.template === t.id ? 'var(--at)' : undefined }}>{t.name}</button>))}
+        </div></label>
         <label className="f">Layout<div className="row wrap" style={{ gap: 10 }}>
-          {[['split', 'Split', 'Illustrations on top, speaker below'], ['overlay', 'Overlay', 'Speaker full frame, graphics float over']].map(([v, l, d]) => (
+          {([['split', 'Split', 'Illustrations on top, speaker below'], ['overlay', 'Overlay', 'Speaker full frame, graphics float over'], ['bubble', 'Loom bubble', 'Screen fills the frame, speaker in a round bubble'], ['pip', 'Picture-in-picture', 'Screen fills the frame, speaker in a small window'], ['framed', 'Framed card', 'Graphics on top, speaker in a rounded card'], ['clean', 'Clean', 'Just the speaker, lower-third headline']] as string[][]).map(([v, l, d]) => (
             <button key={v} onClick={() => set('layout', v)} className="btn" style={{ height: 'auto', padding: 10, flexDirection: 'column', alignItems: 'flex-start', gap: 6, borderColor: b.layout === v ? 'var(--a)' : undefined, background: b.layout === v ? 'var(--at)' : undefined }}>
-              <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span style={{ width: 26, height: 40, borderRadius: 4, border: '1.5px solid var(--line3)', position: 'relative', overflow: 'hidden', background: v === 'overlay' ? '#3a3631' : 'var(--panel3)' }}><i style={{ position: 'absolute', left: v === 'overlay' ? 3 : 0, right: v === 'overlay' ? 3 : 0, top: v === 'overlay' ? 4 : 0, height: v === 'overlay' ? 14 : 24, background: '#EFE7D9', borderRadius: v === 'overlay' ? 2 : 0 }} /></span><b>{l}</b></span>
+              <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}><LayoutGlyph v={v} /><b>{l}</b></span>
               <span className="xs muted" style={{ whiteSpace: 'normal', textAlign: 'left', fontWeight: 400 }}>{d}</span></button>))}
         </div></label>
         <div className="grid2">

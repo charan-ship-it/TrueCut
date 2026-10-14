@@ -15,12 +15,14 @@ import { voiceAll } from '../audio/voice';
 import { buildAudio } from '../audio/soundtrack';
 import { renderProject } from '../render/render';
 import { castVoices } from '../ads/cast';
+import { TALK_LAYOUTS, LAYOUT_INFO } from '@truecut/engine/talk.js';
+import { TALK_TEMPLATES, templateById, templateFrom } from '../talk/templates';
 import { ingestMedia, isMedia, planTalk, buildProxies, buildProxiesFresh, renderTalk, reviseBeat } from '../talk/talk';
 import { ffmpeg } from '../render/media';
 import { checkScenes } from '@truecut/shared/facts';
 import { defineHandler, enqueue, isBusy, type Log } from '@truecut/queue';
 import { DIRECTIONS, CAPTIONS, CAPTION_STYLES } from '@truecut/engine/styles.js';
-import { chooseSkills, skillBlock, projectSkills, toggleSkill } from '../skills/skills';
+import { useBuiltins, chooseSkills, skillBlock, projectSkills, toggleSkill } from '../skills/skills';
 import type { Angle, ChatMsg, FormatId, Project } from '@truecut/shared/types';
 
 import { detectSources, type Attachment } from '@truecut/shared/detect';
@@ -223,9 +225,16 @@ async function talkIntake(pid: string, pr: Prog, added: string[]) {
 const fmtMin = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
 async function cutTalk(pid: string, brief: Record<string, any>, jobId: string, instruction = '') {
+  const tpl = brief.template ? templateById(String(brief.template)) : null;
+  if (tpl) {
+    await useBuiltins(pid, tpl.skills);
+    brief = { length: tpl.length, layout: tpl.layout, music: tpl.music, captions: tpl.captions !== 'none', ...brief };
+    instruction = instruction || tpl.note;
+    await updateProject(pid, (pp) => { pp.talk.template = tpl.id; pp.style = { ...(pp.style || {}), preset: tpl.direction, captions: tpl.captions }; pp.audioHash = undefined; });
+  }
   await updateProject(pid, (p) => {
     if (brief.length) p.intake.length = Math.max(10, Math.min(180, Number(brief.length) || p.intake.length));
-    if (brief.layout === 'split' || brief.layout === 'overlay') p.talk.layout = brief.layout;
+    if (TALK_LAYOUTS.includes(brief.layout)) p.talk.layout = brief.layout;
     if (brief.music) p.talk.music = brief.music;
     if (brief.name != null) p.talk.speaker.name = String(brief.name);
     if (brief.role != null) p.talk.speaker.role = String(brief.role);
@@ -420,10 +429,10 @@ const DECIDE_TOOL = {
   input_schema: { type: 'object', required: ['reply', 'actions'], properties: {
     reply: { type: 'string', description: 'short, warm reply in plain language (1-2 sentences). Say what you are about to do.' },
     actions: { type: 'array', items: { type: 'object', required: ['do'], properties: {
-      do: { type: 'string', enum: ['revise_scene', 'restoryboard', 'set_length', 'set_brief', 'set_direction', 'propose_angles', 'render', 'delete_scene', 'set_layout', 'set_captions', 'set_caption_style', 'use_skill', 'drop_skill', 'list_skills', 'recast', 'none'] },
+      do: { type: 'string', enum: ['revise_scene', 'restoryboard', 'set_length', 'set_brief', 'set_direction', 'propose_angles', 'render', 'delete_scene', 'set_layout', 'apply_template', 'set_captions', 'set_caption_style', 'use_skill', 'drop_skill', 'list_skills', 'recast', 'none'] },
       skill: { type: 'string', description: 'for use_skill / drop_skill: the team skill name' },
       captionStyle: { type: 'string', enum: CAPTIONS, description: 'for set_caption_style: how the on-screen captions look' },
-      layout: { type: 'string', enum: ['split', 'overlay'] }, captions: { type: 'boolean' },
+      layout: { type: 'string', enum: TALK_LAYOUTS }, template: { type: 'string', enum: TALK_TEMPLATES.map((x) => x.id) }, captions: { type: 'boolean' },
       scene: { type: 'number', description: '1-based scene number for revise/delete' },
       instruction: { type: 'string' }, length: { type: 'number' }, preset: { type: 'string', enum: Object.keys(DIRECTIONS) },
       brief: { type: 'object', description: 'intake fields to change: productName, audience, cta, ctaUrl, tone, goal, mustSay, mustAvoid, byline' },
@@ -499,6 +508,29 @@ async function useLibrary(pid: string, jobId: string) {
   await post(pid, { role: 'nick', text: `Added **${added.length}** Library shot${added.length === 1 ? '' : 's'}.${flagged ? ` ${flagged} show personal data, so they're switched off. Turn them on in the Edit bay if that's fine to show.` : ''}${p.scenes.length ? ' Ask me to rework the storyboard if you want them in the video.' : ''}`, cards: [{ kind: 'sources', ids: added.map((a) => a.sourceId) }], replies: p.scenes.length ? ['Rework the storyboard with the new shots'] : [] });
 }
 
+/** "loom style", "bubble", "picture in picture"... → a talk layout id. */
+export function layoutFrom(t: string): string | null {
+  t = t.toLowerCase();
+  if (/\b(loom|bubble|screen ?share|screen ?cast|face ?cam)\b/.test(t)) return 'bubble';
+  if (/\b(pip|picture[- ]in[- ]picture|small window)\b/.test(t)) return 'pip';
+  if (/\b(framed|card layout|podcast card)\b/.test(t)) return 'framed';
+  if (/\b(clean|talking head|just (me|him|her|the speaker)|no (graphics|illustrations))\b/.test(t)) return 'clean';
+  const m = t.match(/\b(split|overlay)\b/); return m ? m[1] : null;
+}
+
+/** Apply a founder-talk template: layout, look, captions, music, length and its skills. Everything stays editable afterwards. */
+async function applyTalkTemplate(pid: string, id: string, jobId: string) {
+  const tpl = templateById(id); if (!tpl) { await post(pid, { role: 'nick', text: `I don't have a template called “${id}”. Ask for “templates” to see them.` }); return; }
+  const names = await useBuiltins(pid, tpl.skills);
+  await updateProject(pid, (pp) => {
+    pp.talk.layout = tpl.layout; pp.talk.music = tpl.music; pp.talk.mix = undefined; pp.talk.showCaptions = tpl.captions !== 'none'; pp.talk.template = tpl.id;
+    pp.style = { ...(pp.style || {}), preset: tpl.direction, captions: tpl.captions }; pp.audioHash = undefined;
+    pp.intake.length = tpl.length; pp.talk.instruction = tpl.note;
+  });
+  await post(pid, { role: 'nick', text: `Using the **${tpl.name}** template: ${tpl.layout} layout, ${DIRECTIONS[tpl.direction]?.label || tpl.direction} look, ${tpl.captions} captions, about ${tpl.length}s${names.length ? `, following ${names.map((n) => `**${n}**`).join(', ')}` : ''}. Re-cutting now. You can still change anything after.` });
+  return cutTalk(pid, { length: tpl.length, layout: tpl.layout, music: tpl.music, captions: tpl.captions !== 'none' }, jobId, tpl.note);
+}
+
 async function interpretTalk(pid: string, text: string, jobId: string) {
   const p = await getProject(pid);
   if (!p.talk.beats.length) { await post(pid, { role: 'nick', text: 'Fill in the brief above and hit **Cut it**: I need the speaker and the length before I edit.' }); return; }
@@ -517,11 +549,13 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
     return;
   }
   let plan = rules(text, p);
-  const lay = t.match(/\b(split|overlay)\b/); if (!plan && lay && /\b(layout|switch|use|try)\b/.test(t)) plan = { reply: '', actions: [{ do: 'set_layout', layout: lay[1] }] };
+  if (/^\/templates?$|\b(what|which|show|list)\b.*\btemplates\b/.test(t)) { await post(pid, { role: 'nick', text: `Templates for founder talks: ${TALK_TEMPLATES.map((x) => `**${x.name}** (${x.tagline})`).join('; ')}. Say “use the loom template” (or any name), or ask me for a layout or look directly.`, replies: ['Use the Loom walkthrough template', 'Use the Hot take template'] }); return; }
+  const tplHit = templateFrom(t); if (tplHit) { await applyTalkTemplate(pid, tplHit.id, jobId); return; }
+  const lay = layoutFrom(t); if (!plan && lay && /\b(layout|switch|use|try|make|show|put|loom|bubble)\b/.test(t)) plan = { reply: '', actions: [{ do: 'set_layout', layout: lay }] };
   if (!plan && /captions? (on|off)|(show|hide|add|remove) captions/.test(t)) plan = { reply: '', actions: [{ do: 'set_captions', captions: /on|show|add/.test(t) }] };
   if (!plan && config.anthropicKey) plan = await callTool<any>({
     model: config.model, maxTokens: 1500,
-    system: `You are Nick, the editor inside TrueCut. This project is a FOUNDER TALK: a real recording cut into a short with an illustrated panel per beat. Map the user's message to actions. "scene N" means beat N. restoryboard = re-edit the whole cut with the instruction (e.g. "start with the tribal knowledge bit", "more energy", "drop the intro"). revise_scene = redraw one beat's headline/illustration. set_layout split|overlay. Directions: ${Object.keys(DIRECTIONS).join(', ')}.`,
+    system: `You are Nick, the editor inside TrueCut. This project is a FOUNDER TALK: a real recording cut into a short with an illustrated panel per beat. Map the user's message to actions. "scene N" means beat N. restoryboard = re-edit the whole cut with the instruction (e.g. "start with the tribal knowledge bit", "more energy", "drop the intro"). revise_scene = redraw one beat's headline/illustration. set_layout (${TALK_LAYOUTS.join(' | ')}): ${Object.entries(LAYOUT_INFO).map(([k, v]) => `${k} = ${v}`).join(' ')} Templates (apply_template, only when the user asks for a template or a ready-made style): ${TALK_TEMPLATES.map((x) => `${x.id} = ${x.tagline}`).join('; ')}. Without a template you have full freedom: change the layout, look, captions, music, cut and individual beats as the user asks. Directions: ${Object.keys(DIRECTIONS).join(', ')}.`,
     tool: DECIDE_TOOL,
     content: [{ type: 'text', text: `Length now: ${p.talk.duration.toFixed(0)}s (target ${p.intake.length}s). Layout: ${p.talk.layout}. Look: ${p.style?.preset}.\nBeats:\n${p.talk.beats.map((b, i) => `${i + 1}. "${b.headline}" [${b.visual?.kind}]`).join('\n')}\n\n${recentChat(p)}User: ${text}` }],
   });
@@ -532,6 +566,7 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
     if (ac.do === 'set_length' && ac.length) recut = { brief: { ...(recut?.brief || {}), length: ac.length }, note: recut?.note || '' };
     if (ac.do === 'restoryboard') recut = { brief: recut?.brief || {}, note: ac.instruction || '' };
     if (ac.do === 'set_direction' && ac.preset) await setDirection(pid, ac.preset, jobId, true);
+    if (ac.do === 'apply_template' && ac.template) { await applyTalkTemplate(pid, ac.template, jobId); return; }
     if (ac.do === 'set_layout' && ac.layout) { await updateProject(pid, (pp) => { pp.talk.layout = ac.layout; }); relayout = true; }
     if (ac.do === 'set_captions') { await updateProject(pid, (pp) => { pp.talk.showCaptions = !!ac.captions; }); changed = true; }
     if (ac.do === 'set_brief' && ac.brief) { await updateProject(pid, (pp) => { Object.assign(pp.intake, ac.brief); }); }

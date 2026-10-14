@@ -127,3 +127,9 @@ Renders hold a render slot (`TRUECUT_RENDER_SLOTS`) however they were started. A
 - Uploads are limited to the file types TrueCut can read, streamed to disk, never held in memory.
 - Folder ingestion is off on a server. Locally it reads only text and image files and skips dot-folders and build output.
 - API keys come from the environment. `TRUECUT_ENV_FILES` imports only `ANTHROPIC_API_KEY` and `ELEVENLABS_*` from other env files. Nothing secret is in the image or the repo.
+
+## Founder-talk layouts and templates
+
+Layouts (`packages/engine/src/talk.js`): `split`, `overlay`, `bubble` (Loom-style round face-cam over the real product screens), `pip` (small portrait window), `framed` (rounded card under the graphics) and `clean` (speaker only, lower-third headline). The cut is always one rectangle composited by ffmpeg at `speakerBox()`; for round/rounded shapes the HTML frame has a CSS mask hole (and a flat surround covers the square's corners), so the render pipeline is unchanged.
+
+Templates (`packages/core/src/talk/templates.ts`) are optional presets: layout + look + captions + music + length + pre-built skills. They are only a starting point; without one, Nick edits freely and can still switch any of those from chat ("use the loom template", "make it a bubble", "templates").

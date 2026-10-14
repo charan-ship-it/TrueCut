@@ -181,6 +181,135 @@ Arc: **what the customer said → why it surprised us → what we changed → wh
 - 30-45 seconds, one idea. If there are two great ideas, pick one; the other can be its own short.
 - End on a complete thought, never mid-sentence.`,
   },
+  {
+    id: 'product-walkthrough', group: 'founder', name: 'product-walkthrough', stages: TALK,
+    description: 'Use when the founder talks through their own product on screen, Loom-style, and the video should show the real product while they explain it.',
+    body: `# Product walkthrough (Loom-style)
+
+- The founder is the narrator; the product is the star. Prefer the bubble layout: the product's real screens fill the frame, the founder sits in a corner bubble.
+- One beat per thing they show or say ("here's where you drop the call", "this is the brief it writes"). Illustrate each beat with the product's real screen (an image or window visual from the sources), never an invented UI.
+- Open on what the viewer gets, in the founder's words. End on what to do next, only if they say it.
+- Keep it tight: 30-60 seconds. Cut every "so", "um", "as you can see".`,
+  },
+  {
+    id: 'myth-vs-reality', group: 'founder', name: 'myth-vs-reality', stages: TALK,
+    description: 'Use when the founder corrects a common misunderstanding about their industry, product or category.',
+    body: `# Myth vs reality
+
+- Open on the myth, in the founder's words ("People think X").
+- Then the turn: "but actually" and the reality, with the one proof they give (a number, an example).
+- Visual: a compare scene (Myth / Reality) with items that are the founder's own phrases.
+- End on what to do differently. Never turn a mild opinion into an absolute claim they didn't make.`,
+  },
+  {
+    id: 'three-lessons-talk', group: 'founder', name: 'three-lessons-talk', stages: TALK,
+    description: 'Use when the founder lists several lessons, tips or rules, and a numbered short will land better than a story.',
+    body: `# Three lessons (numbered talk)
+
+- Exactly the number of lessons the founder actually states (3 is ideal; keep at most 5).
+- One beat per lesson, numbered on screen with a list or card visual whose titles are 2-4 words from their sentence.
+- Open on the promise ("Three things I'd tell every first-time founder"), end on the strongest lesson.
+- Keep each lesson to one sentence plus at most one example from the recording.`,
+  },
+  {
+    id: 'what-nobody-tells-you', group: 'founder', name: 'what-nobody-tells-you', stages: TALK,
+    description: 'Use for an insider-truth talk: something the founder learned the hard way that outsiders don\'t see.',
+    body: `# What nobody tells you
+
+- Hook: the insider truth as the first line, said by the founder (not paraphrased into clickbait).
+- Then 1-2 beats of the real story behind it, one concrete detail each.
+- Close with what they would do instead. 25-45 seconds.
+- Headlines are plain statements, not teasers ("Hiring slow is a feature").`,
+  },
+  {
+    id: 'investor-update-snapshot', group: 'founder', name: 'investor-update-snapshot', stages: TALK,
+    description: 'Use for an investor, board or team update spoken to camera: traction, what shipped, what is next, what help is needed.',
+    body: `# Investor / team update snapshot
+
+Order: **headline number → what changed → what's next → the ask** (only if the founder makes one).
+
+- Every number on screen is a number the founder says; label its unit and period exactly as they do.
+- No hype adjectives the founder didn't use. Calm and specific beats excited.
+- Visuals: stat, bars, a short checklist for next steps. 45-75 seconds.`,
+  },
+  {
+    id: 'hiring-pitch', group: 'founder', name: 'hiring-pitch', stages: TALK,
+    description: 'Use when the founder is recruiting: why join, what the team is building, who they want.',
+    body: `# Hiring pitch
+
+- Open on who they are looking for, in the founder's words ("We need an engineer who...").
+- Then the mission in one sentence, the reason it's a good time to join, and what the person would own.
+- Only claim perks, funding, team size or salary the founder states.
+- End on how to apply, if said. Warm and direct; the clean layout works well.`,
+  },
+  {
+    id: 'qa-answer', group: 'founder', name: 'qa-answer', stages: TALK,
+    description: 'Use when the source answers a question (an AMA, a customer question, an interview prompt) and the short should open on that question.',
+    body: `# Q&A answer
+
+- Open with the question on screen as a quote card, worded as the asker or host said it (tightened but not changed in meaning).
+- The founder's answer follows: lead with their direct answer sentence, then one reason, then one example.
+- 30-45 seconds. Drop the host's lead-in and any "great question".`,
+  },
+  {
+    id: 'behind-the-scenes', group: 'founder', name: 'behind-the-scenes', stages: TALK,
+    description: 'Use for day-in-the-life, how-we-work or how-it-is-made talks that show the real process.',
+    body: `# Behind the scenes
+
+- Open on the most surprising real detail of how the work is done.
+- Walk through 3-4 steps in order, one beat each, in the founder's words; a flow or checklist visual shows the steps.
+- Personal and unpolished beats polished: keep natural pauses that show personality, cut dead air.
+- No invented behind-the-scenes footage; use the founder's own recording and the product's real screens.`,
+  },
+  {
+    id: 'vision-manifesto', group: 'founder', name: 'vision-manifesto', stages: TALK,
+    description: 'Use when the founder states where the company or industry is heading and why it matters: the big-picture talk.',
+    body: `# Vision / manifesto
+
+- Build up to one sentence the viewer can repeat; make it the last line.
+- Beats: where things are now → what's broken or changing → what we believe → what that makes possible.
+- Big quote visuals of the founder's own lines; slow, confident pacing; 40-60 seconds.
+- Never state market sizes, predictions with dates or growth numbers the founder didn't say.`,
+  },
+  {
+    id: 'mistake-postmortem', group: 'founder', name: 'mistake-postmortem', stages: TALK,
+    description: 'Use when the founder owns up to a failure or something that went wrong and what changed afterward.',
+    body: `# Mistake post-mortem
+
+Arc: **what we did → what went wrong → what it cost (only if they say) → what we do now**.
+
+- Own it in the first sentence, in the founder's words, no softening.
+- Keep one specific detail of the failure. End on the changed rule or habit.
+- Tone: honest and calm, no jokes at the customer's expense. 30-50 seconds.`,
+  },
+  {
+    id: 'x-vs-y-comparison', group: 'founder', name: 'x-vs-y-comparison', stages: TALK,
+    description: 'Use when the founder compares two approaches, tools or ways of working and says which one wins and why.',
+    body: `# X vs Y
+
+- Open on the choice ("Build or buy?", "Hire or automate?").
+- A compare visual with the founder's own criteria; 3 items each side at most, each something they actually said.
+- Land on their verdict in one line, and when the other side wins.
+- Never name or disparage a competitor unless the founder does, and then only repeat what they said.`,
+  },
+  {
+    id: 'milestone-thank-you', group: 'founder', name: 'milestone-thank-you', stages: TALK,
+    description: 'Use for a milestone or thank-you moment: first customers, a launch, a funding or anniversary note.',
+    body: `# Milestone / thank-you
+
+- Open on the milestone as a stat (the exact figure the founder says).
+- Then who helped and what comes next, in their words; keep gratitude specific (names only if the founder says them).
+- Warm, short (20-40 seconds), end on one forward-looking line.`,
+  },
+  {
+    id: 'hook-then-proof', group: 'founder', name: 'hook-then-proof', stages: TALK,
+    description: 'Use when the talk makes a strong claim and the recording contains the evidence: lead with the claim, then prove it.',
+    body: `# Hook then proof
+
+- First line: the boldest claim the founder makes, verbatim, even if it was said mid-talk.
+- Next beats: the proof, as the founder gives it (a number, a story, a demo), one piece per beat.
+- Last line: what it means for the viewer. If the recording has no proof for the claim, pick a different opening instead of keeping an unsupported claim.`,
+  },
   // ───────── platforms ─────────
   {
     id: 'linkedin-b2b', group: 'platform', name: 'linkedin-b2b', stages: ['angles', 'storyboard', 'chat', 'talk'],

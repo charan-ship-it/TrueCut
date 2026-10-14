@@ -12,9 +12,10 @@
 // Skills shape tone, structure and process. They can never loosen the fact rules: every prompt that loads
 // them says so, and the fact check (shared/facts.ts) runs after every storyboard either way.
 import { config } from '@truecut/config';
-import { getProject, listSkills, projectMeta, updateProject } from '@truecut/db';
+import { createSkill, getProject, getSkillByName, listSkills, projectMeta, updateProject } from '@truecut/db';
 import type { Project } from '@truecut/shared/types';
 import { callTool } from '../system/claude';
+import { builtinById } from './builtin';
 
 export const SKILL_STAGES = ['angles', 'storyboard', 'chat', 'voice', 'talk'] as const;
 export type SkillStage = (typeof SKILL_STAGES)[number];
@@ -156,4 +157,19 @@ export async function toggleSkill(pid: string, name: string, on: boolean) {
     pp.skills = { ids: [...ids], decided: true, why: pp.skills?.why || '' };
   });
   return s;
+}
+
+/** Make sure the workspace has these pre-built skills (copying them in if it doesn't) and switch them on for this project.
+ *  Used by talk templates, so a template's formats are real, editable team skills, not hidden behaviour. */
+export async function useBuiltins(pid: string, ids: string[]): Promise<string[]> {
+  const ws = await workspaceOf(pid); if (!ws) return [];
+  const got: { id: string; name: string }[] = [];
+  for (const bid of ids) {
+    const b = builtinById(bid); if (!b) continue;
+    let row = await getSkillByName(ws, b.name).catch(() => null);
+    if (!row) row = await createSkill(ws, null, { name: b.name, description: b.description, body: b.body, stages: b.stages, source: 'builtin' }).catch(() => null);
+    if (row && row.enabled !== false) got.push({ id: row.id, name: row.name });
+  }
+  if (got.length) await updateProject(pid, (pp) => { const set = new Set(pp.skills?.ids || []); got.forEach((g) => set.add(g.id)); pp.skills = { ids: [...set], decided: true, why: pp.skills?.why || '' }; });
+  return got.map((g) => g.name);
 }

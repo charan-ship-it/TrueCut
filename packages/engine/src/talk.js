@@ -5,15 +5,64 @@
 import { FORMATS } from './timeline.js';
 import { resolveStyle, fontFaceCss, rgb } from './styles.js';
 
-export const TALK_LAYOUTS = ['split', 'overlay'];
+export const TALK_LAYOUTS = ['split', 'overlay', 'bubble', 'pip', 'framed', 'clean'];
+/** What each layout looks like, for the editor and for Nick. */
+export const LAYOUT_INFO = {
+  split: 'Illustrated panel on top, the speaker below (the classic explainer).',
+  overlay: 'Speaker full-frame with a floating illustration card and the headline on a scrim.',
+  bubble: 'Loom-style: the illustrated screen fills the frame and the speaker sits in a round bubble in the corner.',
+  pip: 'Picture-in-picture: the illustrated screen fills the frame with the speaker in a small portrait window.',
+  framed: 'Headline and illustration on top, the speaker in a rounded card below (podcast-card look).',
+  clean: 'Just the speaker, full-frame, with a lower-third headline and captions. No illustrations.',
+};
 export const PANEL = { '9x16': 0.6, '4x5': 0.56, '1x1': 0.52 };
+const ev = (n) => Math.round(n / 2) * 2;
+
+/** Geometry of the layouts where the speaker is a shape (circle / rounded window) over or beside the illustrated panel. */
+function cardGeo(format, lay) {
+  const f = FORMATS[format] || FORMATS['9x16']; const W = f.w, H = f.h; const pad = Math.round(W * 0.045);
+  if (lay === 'framed') {
+    const y = ev(H * (format === '9x16' ? 0.5 : 0.48)); const sp = { x: pad, y, w: W - 2 * pad, h: ev(H - y - pad * 1.5) };
+    return { speaker: sp, shape: 'round', radius: 34, panel: { x: 0, y: 0, w: W, h: H, r: 0 }, surround: null,
+      head: { top: ev(H * 0.045) }, ill: { top: ev(H * 0.045) + Math.min(250, Math.round(H * 0.13)), bottom: y - 28 },
+      cap: { left: pad + 34, right: pad + 34, top: sp.y + sp.h - 210, align: 'center', size: 46 } };
+  }
+  const panel = { x: pad, y: ev(H * 0.055), w: W - 2 * pad, h: ev(H * (format === '9x16' ? 0.64 : format === '4x5' ? 0.64 : 0.6)), r: 30 };
+  const bottom = panel.y + panel.h;
+  const headH = Math.min(240, Math.round(panel.h * 0.2));
+  if (lay === 'pip') {
+    const w = ev(W * 0.36), h = ev(w * 1.3); const sp = { x: W - pad - w - 6, y: bottom - ev(h * 0.45), w, h };
+    return { speaker: sp, shape: 'round', radius: 26, panel, surround: '#141210', head: { top: 34, rel: true }, ill: { top: headH + 14, bottom: panel.h - (bottom - sp.y) - 20, rel: true },
+      cap: { left: pad, right: W - sp.x + 26, top: bottom + 40, align: 'left', size: 42 } };
+  }
+  const d = ev(W * 0.34); const sp = { x: pad + 8, y: bottom - ev(d * 0.6), w: d, h: d };
+  return { speaker: sp, shape: 'circle', radius: d / 2, panel, surround: '#141210', head: { top: 34, rel: true }, ill: { top: headH + 14, bottom: panel.h - (bottom - sp.y) - 20, rel: true },
+    cap: { left: sp.x + d + 30, right: pad, top: bottom + 40, align: 'left', size: 44 } };
+}
+export const isCardLayout = (lay) => lay === 'bubble' || lay === 'pip' || lay === 'framed';
 
 /** Where the speaker sits for a format + layout (in output pixels). The cut video is rendered to exactly this box. */
 export function speakerBox(format, lay = 'split') {
   const f = FORMATS[format] || FORMATS['9x16'];
-  if (lay === 'overlay') return { x: 0, y: 0, w: f.w, h: f.h };
+  if (isCardLayout(lay)) return cardGeo(format, lay).speaker;
+  if (lay === 'overlay' || lay === 'clean') return { x: 0, y: 0, w: f.w, h: f.h };
   const ph = Math.round(f.h * (PANEL[format] || 0.58) / 2) * 2;
   return { x: 0, y: ph, w: f.w, h: f.h - ph };
+}
+
+/** A CSS mask that is opaque everywhere except a rounded-rect / circle hole (so the cut video underneath shows through). */
+function holeMask(W, H, hole, r) {
+  const { x, y, w, h } = hole; const rr = Math.min(r, w / 2, h / 2);
+  const d = `M0 0H${W}V${H}H0Z M${x + rr} ${y}H${x + w - rr}A${rr} ${rr} 0 0 1 ${x + w} ${y + rr}V${y + h - rr}A${rr} ${rr} 0 0 1 ${x + w - rr} ${y + h}H${x + rr}A${rr} ${rr} 0 0 1 ${x} ${y + h - rr}V${y + rr}A${rr} ${rr} 0 0 1 ${x + rr} ${y}Z`;
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${W}' height='${H}'><path fill-rule='evenodd' d='${d}'/></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+function applyHole(el, W, H, hole, r, ox = 0, oy = 0) {
+  const m = holeMask(W, H, hole, r);
+  for (const k of ['maskImage', 'webkitMaskImage']) el.style[k] = m;
+  for (const k of ['maskSize', 'webkitMaskSize']) el.style[k] = `${W}px ${H}px`;
+  for (const k of ['maskRepeat', 'webkitMaskRepeat']) el.style[k] = 'no-repeat';
+  for (const k of ['maskPosition', 'webkitMaskPosition']) el.style[k] = `${-ox}px ${-oy}px`;
 }
 
 /** Beats are contiguous on the output timeline; fill gaps and clamp to the cut's duration. */
@@ -324,6 +373,8 @@ function talkCss(S, fontBase) {
 .tk-cap{position:absolute;left:60px;right:60px;text-align:center;font-weight:800;font-size:46px;color:#fff;text-shadow:0 3px 18px rgba(0,0,0,.6);line-height:1.15}
 .tk-cap span{opacity:.55}.tk-cap span.on{opacity:1;color:#fff}.tk-cap span.now{color:var(--a)}
 .tk-vid{position:absolute;overflow:hidden;background:#111}
+.tk-ring{position:absolute;border:6px solid var(--card);box-shadow:0 14px 40px rgba(0,0,0,.45);pointer-events:none}
+.tk-cap{text-wrap:balance}
 .tk-vid video{width:100%;height:100%;object-fit:cover;display:block}
 `;
 }
@@ -335,6 +386,8 @@ export function mount(root, comp, opts = {}) {
   const S = resolveStyle(comp.style || { preset: 'editorial' }, comp.brand?.accent);
   const L = talkLayout(comp);
   const box = speakerBox(fmtId, lay);
+  const card = isCardLayout(lay) ? cardGeo(fmtId, lay) : null;   // speaker is a circle / window over the panel
+  const full = lay === 'overlay' || lay === 'clean';              // speaker fills the frame
   const assetUrl = (id) => { if (!id) return ''; const a = (comp.assets || {})[id]; const u = a ? a.url : id; return /^(https?:|data:|\/)/.test(u) ? u : (opts.assetBase || '') + u; };
   root.innerHTML = '';
   const st = document.createElement('style'); st.textContent = talkCss(S, opts.fontBase || './fonts/'); root.appendChild(st);
@@ -346,28 +399,42 @@ export function mount(root, comp, opts = {}) {
   if (!opts.render && proxy) { video = mk(vbox, 'video', '', {}); video.src = assetUrl(proxy); video.playsInline = true; video.preload = 'auto'; video.muted = false; }
   if (!opts.render && !proxy) vbox.innerHTML = `<div style="position:absolute;inset:0;display:grid;place-items:center;color:#777;font:600 22px 'IBM Plex Mono',monospace;letter-spacing:.1em">PREPARING THE CUT…</div>`;
 
-  const panelH = lay === 'split' ? box.y : Math.round(H * 0.5);
-  const panel = mk(F, 'div', 'tk-panel', lay === 'split' ? { height: panelH + 'px' } : { left: '48px', right: '48px', top: '90px', height: panelH - 60 + 'px', borderRadius: '18px', boxShadow: '0 30px 80px -20px rgba(0,0,0,.6)' });
+  let panelH, headH, illTop, illH, pw, panel;
+  if (card) {
+    // a flat surround covers the corners of the square cut; both it and the panel have a hole where the speaker shows
+    if (card.surround) { const back = mk(F, 'div', 'ab', { left: 0, top: 0, width: W + 'px', height: H + 'px', background: card.surround }); applyHole(back, W, H, box, card.radius); }
+    const pn = card.panel; panelH = pn.h;
+    panel = mk(F, 'div', 'tk-panel', { left: pn.x + 'px', top: pn.y + 'px', width: pn.w + 'px', height: pn.h + 'px', right: 'auto', borderRadius: pn.r + 'px', boxShadow: pn.r ? '0 30px 80px -20px rgba(0,0,0,.6)' : 'none' });
+    applyHole(panel, W, H, box, card.radius, pn.x, pn.y);
+    headH = card.head.rel ? Math.min(240, Math.round(pn.h * 0.2)) : Math.min(250, Math.round(H * 0.13));
+    illTop = card.ill.top; illH = Math.max(120, card.ill.bottom - card.ill.top); pw = pn.w;
+    mk(F, 'div', 'tk-ring', { left: box.x + 'px', top: box.y + 'px', width: box.w + 'px', height: box.h + 'px', borderRadius: (lay === 'bubble' ? box.w / 2 : card.radius) + 'px' });
+  } else {
+    panelH = lay === 'split' ? box.y : Math.round(H * 0.5);
+    panel = mk(F, 'div', 'tk-panel', lay === 'split' ? { height: panelH + 'px' } : { left: '48px', right: '48px', top: '90px', height: panelH - 60 + 'px', borderRadius: '18px', boxShadow: '0 30px 80px -20px rgba(0,0,0,.6)' });
+    if (lay === 'clean') panel.style.display = 'none';
+    headH = lay === 'split' ? Math.min(250, panelH * 0.24) : 0;
+    illTop = 50; illH = (lay === 'split' ? panelH - headH : panelH - 60) - 70;
+    pw = lay === 'split' ? W : W - 96;
+  }
   mk(panel, 'div', 'tk-paper');
-  const headH = lay === 'split' ? Math.min(250, panelH * 0.24) : 0;
-  const illH = (lay === 'split' ? panelH - headH : panelH - 60) - 70;
-  const pw = lay === 'split' ? W : W - 96;
-  // overlay layout: the headline sits on a scrim at the bottom of the frame
-  if (lay === 'overlay') mk(F, 'div', 'ab', { left: 0, right: 0, bottom: 0, height: H * 0.34 + 'px', background: 'linear-gradient(transparent,rgba(0,0,0,.72))' });
-  const headHost = lay === 'split' ? panel : F;
-  const hsz = Math.round((fmtId === '9x16' ? 88 : fmtId === '4x5' ? 72 : 62));
+  // overlay / clean: the headline sits on a scrim at the bottom of the frame
+  if (full) mk(F, 'div', 'ab', { left: 0, right: 0, bottom: 0, height: H * 0.34 + 'px', background: 'linear-gradient(transparent,rgba(0,0,0,.72))' });
+  const headHost = full ? F : panel;
+  const hsz = Math.round((fmtId === '9x16' ? 88 : fmtId === '4x5' ? 72 : 62)) * (card && lay !== 'framed' ? 0.86 : 1);
   // label strip + progress line between panel and speaker
   const strip = lay === 'split' && T.label ? mk(F, 'div', 'tk-strip', { top: box.y + 'px' }, `<i></i>${esc(T.label)}`) : null;
   const prog = mk(F, 'div', 'tk-prog', { top: (lay === 'split' ? box.y - 6 : H - 6) + 'px' });
-  const capHost = (T.showCaptions ?? lay === 'overlay') ? mk(F, 'div', 'tk-cap', { top: (lay === 'split' ? H - 170 : H * 0.62) + 'px' }) : null;
+  const capOn = T.showCaptions ?? (full || !!card);
+  const capHost = capOn ? mk(F, 'div', 'tk-cap', card ? { left: card.cap.left + 'px', right: card.cap.right + 'px', top: card.cap.top + 'px', textAlign: card.cap.align, fontSize: card.cap.size + 'px' } : { top: (lay === 'split' ? H - 170 : H * 0.62) + 'px' }) : null;
 
   const built = L.beats.map((b) => {
     const el = mk(panel, 'div', 'tk-beat'); el.style.opacity = 0;
-    const ill = mk(el, 'div', 'tk-ill', { top: 50 + 'px', height: illH + 'px', width: pw + 'px' });
+    const ill = mk(el, 'div', 'tk-ill', { top: illTop + 'px', height: illH + 'px', width: pw + 'px' });
     let upd = () => {};
     const v = b.visual || {}; const fn = TOOLKIT[v.kind] || TOOLKIT.cards;
     try { upd = fn(ill, v, { w: pw, h: illH }, { assetUrl, S }); } catch (err) { ill.innerHTML = `<div style="padding:40px;color:#c00">${esc(err.message)}</div>`; }
-    const hd = mk(headHost === panel ? el : F, 'div', 'tk-head', lay === 'split' ? { top: panelH - headH + 10 + 'px' } : { top: H * 0.74 + 'px', color: '#fff' });
+    const hd = mk(headHost === panel ? el : F, 'div', 'tk-head', full ? { top: H * 0.74 + 'px', color: '#fff' } : card ? { top: card.head.top + 'px' } : { top: panelH - headH + 10 + 'px' });
     const words = String(b.headline || '').split(/\s+/).filter(Boolean); const acc = String(b.accent || words[words.length - 1] || '').toLowerCase();
     const h = mk(hd, 'div', 'tk-h', { fontSize: hsz * (words.join(' ').length > 18 ? 0.82 : 1) + 'px' });
     const nk = (x) => String(x).toLowerCase().replace(/[^a-z0-9']/g, ''); const A = nk(acc);
@@ -375,8 +442,8 @@ export function mount(root, comp, opts = {}) {
     if (ai < 0) ai = words.findIndex((w) => { const x = nk(w); return x && A && (x.startsWith(A.slice(0, Math.max(3, A.length - 2))) || A.startsWith(x.slice(0, Math.max(3, x.length - 2)))); });
     if (ai < 0) ai = words.length - 1;
     const ws = words.map((w, i) => mk(h, 'span', 'w' + (i === ai ? ' ac' : ''), {}, esc(w) + (i < words.length - 1 ? '&nbsp;' : '')));
-    const sub = b.sub ? mk(hd, 'div', 'tk-sub', { fontSize: Math.round(hsz * 0.34) + 'px', color: lay === 'overlay' ? 'rgba(255,255,255,.8)' : undefined }, esc(b.sub)) : null;
-    if (lay === 'overlay') hd.style.opacity = 0;
+    const sub = b.sub ? mk(hd, 'div', 'tk-sub', { fontSize: Math.round(hsz * 0.34) + 'px', color: full ? 'rgba(255,255,255,.8)' : undefined }, esc(b.sub)) : null;
+    if (full) hd.style.opacity = 0;
     return { b, el, upd, hd, ws, sub };
   });
   const caps = L.captions;

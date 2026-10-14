@@ -131,8 +131,9 @@ export const Beat = z.object({ id: z.string(), start: z.number(), end: z.number(
 export type Beat = z.infer<typeof Beat>;
 export const Talk = z.object({
   media: z.array(Media).default([]),
-  layout: z.enum(['split', 'overlay']).default('split'),
+  layout: z.enum(['split', 'overlay', 'bubble', 'pip', 'framed', 'clean']).default('split'),
   music: z.string().default('auto'),
+  template: z.string().optional(),
   musicWhy: z.string().optional(),
   showCaptions: z.boolean().optional(),
   speaker: z.object({ name: z.string().default(''), role: z.string().default('') }).default({}),

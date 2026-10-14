@@ -2,16 +2,57 @@
   "manifest_version": 3,
   "name": "TrueCut Capture",
   "short_name": "TrueCut",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Capture real product screens into your team's TrueCut Library, with blur for personal data.",
   "minimum_chrome_version": "116",
-  "icons": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" },
-  "action": { "default_popup": "popup.html", "default_title": "Capture to TrueCut", "default_icon": { "16": "icons/icon-16.png", "32": "icons/icon-32.png" } },
-  "background": { "service_worker": "background.js", "type": "module" },
-  "permissions": ["activeTab", "scripting", "storage"],
-  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Capture to TrueCut",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
   "commands": {
-    "capture-visible": { "suggested_key": { "default": "Alt+Shift+S" }, "description": "Capture the visible area" },
-    "capture-area": { "suggested_key": { "default": "Alt+Shift+A" }, "description": "Select an area to capture" }
+    "capture-visible": {
+      "suggested_key": {
+        "default": "Alt+Shift+S"
+      },
+      "description": "Capture the visible area"
+    },
+    "capture-area": {
+      "suggested_key": {
+        "default": "Alt+Shift+A"
+      },
+      "description": "Select an area to capture"
+    }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuy3aA7iNd6tf4a/+nPnrqNAs/eGo5Jt4LkA5sUGZHTKp/9KHjRbz7tXiwe7GgdzNqnzE0GOVde/LA/yCgQDV1pHDvDEJd1FIdpbgdRYivwxlv2pF3mzn0NU2hZaQlXBoY5c9YMXHoiT9x1bAisz87YNbL0d81ypKGTTBUn2vcF9aV5bQ6iehF5z2kM8DdXwcUCobKcECwRzS+JoQ3ztE8cq4AjF2zkNf4uzljGtz39338bI3dLxFsTmJvXNWOLfBeJ8/pYd1FocEQJwEXs3Qzpzer8KiI2tHvaeBsTt1r9gKIKgClnam4ogN8ZcEk2dYT7wtFpdo8FNEnwMcVDUqwQIDAQAB",
+  "externally_connectable": {
+    "matches": [
+      "https://truecut.up.railway.app/*",
+      "http://localhost/*",
+      "http://127.0.0.1/*"
+    ]
   }
 }

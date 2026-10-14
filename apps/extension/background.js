@@ -1,6 +1,6 @@
 // TrueCut Capture: takes the screenshot (visible area, a selected area, or the full page), keeps it
 // in IndexedDB, and opens the editor where people blur personal data and save it to the Library.
-import { putCapture, newId, listCaptures } from './lib.js';
+import { putCapture, newId, listCaptures, setConn, clearConn, normalizeServer, apiFetch } from './lib.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const RESTRICTED = /^(chrome|edge|about|chrome-extension|devtools|view-source):|^https:\/\/chrome(webstore)?\.google\.com\/(webstore|detail)/;
@@ -123,6 +123,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     return true;
   }
   if (msg?.type === 'badge') { refreshBadge().then(() => reply({ ok: true })); return true; }
+});
+
+// Pairing: the TrueCut "connect" page (opened from the popup, signed in as you) sends a fresh token straight here,
+// so nobody has to type the address or paste a token. Only pages on the origins listed under
+// externally_connectable can reach this, and the sender's origin must match the server being paired.
+chrome.runtime.onMessageExternal.addListener((msg, sender, reply) => {
+  (async () => {
+    if (msg?.type !== 'tc-connect') throw new Error('Unknown message.');
+    const server = normalizeServer(msg.server);
+    if (new URL(sender.origin || sender.url).origin !== server) throw new Error('That page cannot pair this extension with a different address.');
+    const token = String(msg.token || '');
+    if (!/^tc_[A-Za-z0-9_-]{20,}$/.test(token)) throw new Error('That token is not valid.');
+    await setConn({ server, token });
+    try { const me = await apiFetch('/api/ext/me'); await setConn({ server, token, name: me.user.name, email: me.user.email, products: me.products || [] }); }
+    catch (e) { await clearConn(); throw e; }
+    await refreshBadge();
+    return { ok: true };
+  })().then(reply, (e) => reply({ ok: false, error: e?.message || String(e) }));
+  return true;
 });
 
 chrome.commands.onCommand.addListener((command, tab) => {

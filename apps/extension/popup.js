@@ -1,4 +1,4 @@
-import { getConn, setConn, clearConn, normalizeServer, apiFetch, listCaptures, uploadCapture } from './lib.js';
+import { DEFAULT_SERVER, getConn, setConn, clearConn, normalizeServer, apiFetch, listCaptures, uploadCapture } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
 const say = (t, kind = '') => { const m = $('msg'); m.hidden = !t; m.textContent = t || ''; m.className = `msg ${kind}`; };
@@ -6,7 +6,7 @@ const say = (t, kind = '') => { const m = $('msg'); m.hidden = !t; m.textContent
 async function show() {
   const conn = await getConn();
   $('connect').hidden = !!conn; $('ready').hidden = !conn; $('menu').hidden = !conn;
-  if (!conn) { $('server').focus(); return; }
+  if (!conn) { $('server').value = $('server').value || DEFAULT_SERVER; return; }
   $('who').textContent = `${conn.name || conn.email} · ${new URL(conn.server).host}`;
   $('lib').href = `${conn.server}/library`;
   const pending = await listCaptures();
@@ -27,6 +27,15 @@ async function show() {
     box.append(row);
   }
 }
+
+// One-click pairing: the connect page on the server sends this extension a token (see background.js).
+$('pair').onclick = async () => {
+  let server; try { server = normalizeServer($('server').value || DEFAULT_SERVER); } catch (e) { return say(e.message, 'bad'); }
+  await chrome.tabs.create({ url: `${server}/ext/connect?ext=${chrome.runtime.id}` });
+  window.close();
+};
+// when pairing finishes the stored connection appears: refresh the popup if it is still open
+chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch.conn) show(); });
 
 $('go').onclick = async () => {
   say('');

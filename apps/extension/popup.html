@@ -4,10 +4,15 @@
 <body>
   <div class="row" style="margin-bottom:12px"><div class="brand grow"><img src="icons/icon-48.png" alt=""><h1>TrueCut Capture</h1></div><button id="menu" class="btn ghost xs" hidden>Disconnect</button></div>
   <section id="connect" class="col" hidden>
-    <p class="muted xs" style="margin:0">Connect to your team's TrueCut. Get a token in TrueCut → Settings → Capture extension.</p>
-    <label>TrueCut address<input id="server" placeholder="https://truecut.up.railway.app" autocomplete="url"></label>
-    <label>Token<input id="token" type="password" placeholder="tc_…" autocomplete="off" spellcheck="false"></label>
-    <button id="go" class="btn primary">Connect</button>
+    <p class="muted xs" style="margin:0" id="why">Connect to your team's TrueCut. It opens TrueCut in a new tab, you confirm, and you are connected: no address or token to type.</p>
+    <button id="pair" class="btn primary">Connect to TrueCut</button>
+    <details style="margin-top:4px"><summary class="xs muted" style="cursor:pointer">Use a token instead</summary>
+      <div class="col" style="margin-top:8px">
+        <label>TrueCut address<input id="server" placeholder="https://truecut.up.railway.app" autocomplete="url"></label>
+        <label>Token<input id="token" type="password" placeholder="tc_…" autocomplete="off" spellcheck="false"></label>
+        <button id="go" class="btn">Connect with token</button>
+      </div>
+    </details>
   </section>
   <section id="ready" class="col" hidden>
     <div class="xs muted" id="who"></div>

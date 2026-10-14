@@ -10,7 +10,9 @@ Captures real product screens (including pages behind a login) into the team's T
 
 1. Download `truecut-capture.zip` from TrueCut → Settings → Capture extension, and unzip it.
 2. `chrome://extensions` → Developer mode → **Load unpacked** → the unzipped folder.
-3. Click the TrueCut icon → paste your TrueCut address and a token from Settings → **Connect**.
+3. Click the TrueCut icon → **Connect to TrueCut**. A TrueCut tab opens; confirm, and the extension is paired (the page hands it a token directly, so there is no address or token to type). "Use a token instead" in the popup still works.
+
+The manifest carries a fixed `key`, so the extension keeps the same ID (`mjjgakmkfgababllinaggabmhfjmdlkd`) however and wherever it is loaded. Without it Chrome derives the ID from the folder path, every re-download got a new ID and a new, empty storage, and the sign-in was lost each time.
 
 ## How it talks to TrueCut
 

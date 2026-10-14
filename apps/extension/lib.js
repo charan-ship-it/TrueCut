@@ -1,6 +1,9 @@
 // Shared by the popup, the editor and the service worker.
 export const MAX_BYTES = 25 * 1024 * 1024;
 
+// The address people connect to by default; the connect page on that server pairs the extension without typing it.
+export const DEFAULT_SERVER = 'https://truecut.up.railway.app';
+
 // ── settings (server + token) ──
 export async function getConn() { const { conn } = await chrome.storage.local.get('conn'); return conn || null; }
 export async function setConn(conn) { await chrome.storage.local.set({ conn }); }

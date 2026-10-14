@@ -286,7 +286,7 @@ function Extension() {
           <ol className="steps small">
             <li><a className="btn sm" href="/downloads/truecut-capture.zip" download><I.download size={14} />Download the extension</a> and unzip it.</li>
             <li>Open <code>chrome://extensions</code>, switch on <b>Developer mode</b>, click <b>Load unpacked</b> and pick the unzipped folder.</li>
-            <li>Click the TrueCut icon, then <b>Connect</b>, and paste this server address and a token from below.</li>
+            <li>Click the TrueCut icon, then <b>Connect to TrueCut</b>. It opens this site, you confirm, and you are connected: no address or token to type. Pin the extension and it stays connected. (Updating from an older version? Remove the old copy in <code>chrome://extensions</code> first and load the new folder once; from now on it keeps the same identity.)</li>
           </ol>
           <div className="row"><span className="xs muted">Server</span><code className="grow ell">{origin}</code><button className="btn sm" onClick={() => copy(origin, 'server')}>{copied === 'server' ? 'Copied' : 'Copy'}</button></div>
         </div>

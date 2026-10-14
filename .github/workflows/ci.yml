@@ -20,7 +20,9 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - name: Start a test bucket (MinIO)
-        run: docker run -d --name minio -p 9000:9000 -e MINIO_ROOT_USER=test -e MINIO_ROOT_PASSWORD=testtesttest minio/minio server /data
+        run: |
+          docker run -d --name minio -p 9000:9000 -e MINIO_ROOT_USER=test -e MINIO_ROOT_PASSWORD=testtesttest quay.io/minio/minio server /data
+          for i in $(seq 1 30); do curl -sf http://localhost:9000/minio/health/live && break; sleep 1; done
       - run: npm ci --no-audit --no-fund
         env: { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1" }
       - run: npm run typecheck

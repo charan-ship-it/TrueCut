@@ -9,7 +9,7 @@ Collect these before you open Railway; the rest of this guide is copying them in
 | # | Thing | Where to get it | Notes |
 |---|---|---|---|
 | 1 | **Railway account** on a paid plan (Pro recommended) | railway.com | The worker needs 4+ vCPU / 8 GB for renders, more than the free tier allows |
-| 2 | **GitHub access** to `charan-ship-it/TrueCut` | your GitHub | Railway deploys from it; CI must be green |
+| 2 | **GitHub access** to `charan-ship-it/TrueCut` | your GitHub | Railway deploys from it |
 | 3 | **Google Workspace admin** (or someone who is) | admin.google.com | To create the *Internal* OAuth app for sign-in |
 | 4 | **Google OAuth client ID + secret**, and/or a **Nylas** API key for email links | console.cloud.google.com → Credentials (step 3 below) | Needs the final web URL, so you create it after step 2 |
 | 5 | **Anthropic API key** for the workspace | console.anthropic.com → API keys | Optional at deploy time: owners can add it later in Settings → API keys. Make sure the account has credits and access to Claude Opus 5.5 |

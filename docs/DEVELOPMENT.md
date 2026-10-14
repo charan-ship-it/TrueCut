@@ -67,8 +67,7 @@ npm test          # needs the truecut_test database; database and bucket tests s
 npm run build
 ```
 
-CI runs the same three plus a Docker build on every push and pull request (`.github/workflows/ci.yml`).
-Bucket tests run when `TRUECUT_TEST_S3_ENDPOINT` points at an S3-compatible server (CI uses MinIO).
+Bucket tests run when `TRUECUT_TEST_S3_ENDPOINT` points at an S3-compatible server (for example moto_server).
 
 ## Where things go
 

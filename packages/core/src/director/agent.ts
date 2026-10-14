@@ -22,6 +22,8 @@ import { ffmpeg } from '../render/media';
 import { checkScenes } from '@truecut/shared/facts';
 import { defineHandler, enqueue, isBusy, type Log } from '@truecut/queue';
 import { DIRECTIONS, CAPTIONS, CAPTION_STYLES } from '@truecut/engine/styles.js';
+import { UserFacingError } from '../system/errors';
+import { runAgent, sdkEnabled, z, type AgentTool } from '../agent/sdk';
 import { useBuiltins, chooseSkills, skillBlock, projectSkills, toggleSkill } from '../skills/skills';
 import type { Angle, ChatMsg, FormatId, Project } from '@truecut/shared/types';
 
@@ -531,6 +533,40 @@ async function applyTalkTemplate(pid: string, id: string, jobId: string) {
   return cutTalk(pid, { length: tpl.length, layout: tpl.layout, music: tpl.music, captions: tpl.captions !== 'none' }, jobId, tpl.note);
 }
 
+/** Free-form chat for a founder talk, run as an agent loop on the Claude Agent SDK. Nick can call any editing tool, as many
+ *  times as it takes. The tools only record decisions; the same code that runs the deterministic rules carries them out. */
+async function talkAgentPlan(pid: string, p: Project, text: string): Promise<{ reply: string; actions: any[] } | null> {
+  const actions: any[] = [];
+  const beatN = (n: number) => { if (!Number.isInteger(n) || n < 1 || n > p.talk.beats.length) throw new Error(`There is no beat ${n}; the talk has ${p.talk.beats.length}.`); return n; };
+  const tools: AgentTool[] = [
+    { name: 'get_state', description: 'The current layout, look, captions, music, length and every beat. Call this first if you need to see the talk.', shape: {}, run: () =>
+      `Length ${p.talk.duration.toFixed(0)}s (target ${p.intake.length}s). Layout ${p.talk.layout}. Template ${p.talk.template || 'none'}. Look ${p.style?.preset}. Captions ${p.talk.showCaptions === false ? 'off' : 'on'}. Music ${p.talk.music}.\nBeats:\n${p.talk.beats.map((b, i) => `${i + 1}. "${b.headline}" [${b.visual?.kind}]`).join('\n')}` },
+    { name: 'list_templates', description: 'The ready-made founder-talk templates (layout, look, captions, music and formats bundled).', shape: {}, run: () => TALK_TEMPLATES.map((x) => `${x.id}: ${x.name}, ${x.tagline} (${x.layout} layout, ~${x.length}s)`).join('\n') },
+    { name: 'apply_template', description: 'Apply a template and re-cut the talk with it. Use only when the person asks for a template or a ready-made style. Everything stays editable afterwards.', shape: { template: z.enum(TALK_TEMPLATES.map((x) => x.id) as [string, ...string[]]) }, run: (a) => { actions.push({ do: 'apply_template', template: a.template }); return `Queued: apply the ${a.template} template and re-cut.`; } },
+    { name: 'set_layout', description: `Change how the speaker and graphics are arranged. ${Object.entries(LAYOUT_INFO).map(([k, v]) => `${k}: ${v}`).join(' ')}`, shape: { layout: z.enum(TALK_LAYOUTS as [string, ...string[]]) }, run: (a) => { actions.push({ do: 'set_layout', layout: a.layout }); return `Queued: ${a.layout} layout.`; } },
+    { name: 'set_look', description: `Change the visual direction (colours, type, motion). Options: ${Object.entries(DIRECTIONS).map(([k, d]: any) => `${k} (${d.label})`).join(', ')}.`, shape: { direction: z.enum(Object.keys(DIRECTIONS) as [string, ...string[]]) }, run: (a) => { actions.push({ do: 'set_direction', preset: a.direction }); return `Queued: ${a.direction} look.`; } },
+    { name: 'set_captions', description: 'Turn captions on or off.', shape: { on: z.boolean() }, run: (a) => { actions.push({ do: 'set_captions', captions: a.on }); return `Queued: captions ${a.on ? 'on' : 'off'}.`; } },
+    { name: 'set_music', description: 'Change the music bed under the founder\'s voice. The voice itself is never replaced.', shape: { music: z.enum(['lofi', 'piano', 'ambient', 'cinematic', 'bright', 'none']) }, run: (a) => { actions.push({ do: 'set_music', music: a.music }); return `Queued: ${a.music} music.`; } },
+    { name: 'revise_beat', description: 'Redraw one beat\'s headline and illustration with an instruction ("make it a bar chart", "shorter headline"). Facts must come from what the speaker said.', shape: { beat: z.number().int(), instruction: z.string().min(2).max(400) }, run: (a) => { beatN(a.beat); actions.push({ do: 'revise_scene', scene: a.beat, instruction: a.instruction }); return `Queued: redraw beat ${a.beat}.`; } },
+    { name: 'delete_beat', description: 'Remove one beat from the talk.', shape: { beat: z.number().int() }, run: (a) => { beatN(a.beat); actions.push({ do: 'delete_scene', scene: a.beat }); return `Queued: delete beat ${a.beat}.`; } },
+    { name: 'recut', description: 'Re-edit the whole talk from the recording with an instruction ("start with the tribal knowledge bit", "more energy", "drop the intro"), optionally to a new length in seconds.', shape: { instruction: z.string().max(500).optional(), length: z.number().int().min(10).max(180).optional() }, run: (a) => { if (a.length) actions.push({ do: 'set_length', length: a.length }); actions.push({ do: 'restoryboard', instruction: a.instruction || '' }); return 'Queued: re-cut.'; } },
+    { name: 'list_skills', description: 'The team skills in use on this project and the ones available.', shape: {}, run: () => { actions.push({ do: 'list_skills' }); return 'Queued: list the skills in chat.'; } },
+    { name: 'use_skill', description: 'Follow a team skill (a saved format or house style) from now on in this project.', shape: { name: z.string() }, run: (a) => { actions.push({ do: 'use_skill', skill: a.name }); return `Queued: use ${a.name}.`; } },
+    { name: 'drop_skill', description: 'Stop following a team skill on this project.', shape: { name: z.string() }, run: (a) => { actions.push({ do: 'drop_skill', skill: a.name }); return `Queued: drop ${a.name}.`; } },
+    { name: 'render', description: 'Render the final video files. Only when the person asks to render or export.', shape: { formats: z.array(z.enum(['9x16', '4x5', '1x1'])).optional() }, run: (a) => { actions.push({ do: 'render', formats: a.formats }); return 'Queued: render.'; } },
+  ];
+  const skills = await skillBlock(pid, 'chat', p).catch(() => '');
+  const system = `You are Nick, the video editor inside TrueCut. This project is a FOUNDER TALK: a real recording cut into a short with an illustrated panel per beat. You edit by calling tools; the edits run after you finish. Work freely: use as many tools as the request needs (for example change the layout, look and captions together), and ask nothing unless the request is truly unclear. "Beat N" and "scene N" mean the same thing. Never invent facts, numbers or quotes: everything on screen comes from what the speaker said. The speaker's own voice is never replaced or re-voiced. Reply in one or two short, friendly sentences saying what you did; do not list the tools.${skills}`;
+  const prompt = `Current talk: ${p.talk.duration.toFixed(0)}s (target ${p.intake.length}s), layout ${p.talk.layout}, look ${p.style?.preset}.\nBeats:\n${p.talk.beats.map((b, i) => `${i + 1}. "${b.headline}" [${b.visual?.kind}]`).join('\n')}\n\n${recentChat(p)}User: ${text}`;
+  try {
+    const r = await runAgent({ system, prompt, tools, operation: 'nick-agent', maxTurns: 8 });
+    return { reply: r.text, actions };
+  } catch (e: any) {
+    if (e instanceof UserFacingError && e.code === 'agent_failed') { console.error('[nick-agent] falling back:', e.message); return null; }
+    throw e;
+  }
+}
+
 async function interpretTalk(pid: string, text: string, jobId: string) {
   const p = await getProject(pid);
   if (!p.talk.beats.length) { await post(pid, { role: 'nick', text: 'Fill in the brief above and hit **Cut it**: I need the speaker and the length before I edit.' }); return; }
@@ -553,6 +589,7 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
   const tplHit = templateFrom(t); if (tplHit) { await applyTalkTemplate(pid, tplHit.id, jobId); return; }
   const lay = layoutFrom(t); if (!plan && lay && /\b(layout|switch|use|try|make|show|put|loom|bubble)\b/.test(t)) plan = { reply: '', actions: [{ do: 'set_layout', layout: lay }] };
   if (!plan && /captions? (on|off)|(show|hide|add|remove) captions/.test(t)) plan = { reply: '', actions: [{ do: 'set_captions', captions: /on|show|add/.test(t) }] };
+  if (!plan && sdkEnabled()) plan = await talkAgentPlan(pid, p, text);
   if (!plan && config.anthropicKey) plan = await callTool<any>({
     model: config.model, maxTokens: 1500,
     system: `You are Nick, the editor inside TrueCut. This project is a FOUNDER TALK: a real recording cut into a short with an illustrated panel per beat. Map the user's message to actions. "scene N" means beat N. restoryboard = re-edit the whole cut with the instruction (e.g. "start with the tribal knowledge bit", "more energy", "drop the intro"). revise_scene = redraw one beat's headline/illustration. set_layout (${TALK_LAYOUTS.join(' | ')}): ${Object.entries(LAYOUT_INFO).map(([k, v]) => `${k} = ${v}`).join(' ')} Templates (apply_template, only when the user asks for a template or a ready-made style): ${TALK_TEMPLATES.map((x) => `${x.id} = ${x.tagline}`).join('; ')}. Without a template you have full freedom: change the layout, look, captions, music, cut and individual beats as the user asks. Directions: ${Object.keys(DIRECTIONS).join(', ')}.`,
@@ -569,6 +606,8 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
     if (ac.do === 'apply_template' && ac.template) { await applyTalkTemplate(pid, ac.template, jobId); return; }
     if (ac.do === 'set_layout' && ac.layout) { await updateProject(pid, (pp) => { pp.talk.layout = ac.layout; }); relayout = true; }
     if (ac.do === 'set_captions') { await updateProject(pid, (pp) => { pp.talk.showCaptions = !!ac.captions; }); changed = true; }
+    if (ac.do === 'set_music' && ac.music) { await updateProject(pid, (pp) => { pp.talk.music = ac.music; pp.talk.mix = undefined; }); relayout = true; }
+    if (ac.do === 'list_skills' || ac.do === 'use_skill' || ac.do === 'drop_skill') await skillAction(pid, ac.do, ac.skill);
     if (ac.do === 'set_brief' && ac.brief) { await updateProject(pid, (pp) => { Object.assign(pp.intake, ac.brief); }); }
     if (ac.do === 'delete_scene' && ac.scene) { await updateProject(pid, (pp) => { pp.talk.beats.splice(ac.scene - 1, 1); }); changed = true; }
     if (ac.do === 'revise_scene' && ac.scene && ac.instruction) { const pr = await progress(pid, jobId, `Redrawing beat ${ac.scene}`); await pr.step(ac.instruction); await reviseBeat(pid, ac.scene - 1, ac.instruction); await pr.finish(`Beat ${ac.scene} redrawn`); changed = true; }

@@ -11,7 +11,8 @@ import { verifyFact, numbersIn, checkScenes } from '@truecut/shared/facts';
 import type { Fact, Project, Question, Scene, Visual } from '@truecut/shared/types';
 import { SCENE_TYPES } from '@truecut/engine/timeline.js';
 import { sanitizeMarkup } from '@truecut/engine/talk.js';
-import { DESIGN_PROCESS, DESIGN_CRAFT, EXEMPLARS, critiqueDrawings } from '../design/craft';
+import { timed } from '../system/log';
+import { DESIGN_PROCESS, DESIGN_CRAFT, DESIGN_PLAYBOOK, EXEMPLARS, critiqueDrawings } from '../design/craft';
 import { projectLayout } from '@truecut/shared/compose';
 
 type Log = (msg: string, pct?: number) => void;
@@ -228,7 +229,7 @@ export async function storyboard(pid: string, log: Log) {
     log('Writing the brief and storyboard with Claude…', 20);
     out = await callTool<any>({
       model: config.creativeModel, maxTokens: 16000,
-      system: `You are an award-winning motion designer and senior B2B marketer. You write 15-45 second motion-graphics ads for LinkedIn and Instagram that feel alive every second, built ONLY from verified product reality. You think like a product manager (one clear proposition), a copywriter (spoken lines that land) and an editor (beats on a 120 BPM grid), and you design like a top motion designer: you start from what the person needs, not from a template.\n${DESIGN_PROCESS}${DESIGN_CRAFT}${EXEMPLARS}${RULES}\n${SCENE_SPEC}${skills}`,
+      system: `You are an award-winning motion designer and senior B2B marketer. You write 15-45 second motion-graphics ads for LinkedIn and Instagram that feel alive every second, built ONLY from verified product reality. You think like a product manager (one clear proposition), a copywriter (spoken lines that land) and an editor (beats on a 120 BPM grid), and you design like a top motion designer: you start from what the person needs, not from a template.\n${DESIGN_PROCESS}${DESIGN_CRAFT}${DESIGN_PLAYBOOK}${EXEMPLARS}${RULES}\n${SCENE_SPEC}${skills}`,
       tool: STORY_TOOL,
       content: [{ type: 'text', text: storyContext(p) + '\n\nWrite the storyboard now via record_storyboard.' }],
     });
@@ -243,7 +244,7 @@ export async function storyboard(pid: string, log: Log) {
     pp.audioFile = undefined; pp.audioHash = undefined;
     pp.stage = 'storyboard';
   });
-  if (config.anthropicKey) await reviewDrawings(pid, log).catch(() => {});
+  if (config.anthropicKey) await timed('storyboard', 'review', { project: pid }, () => reviewDrawings(pid, log)).catch(() => {});
   if (config.anthropicKey) {
     const bad = checkScenes(await getProject(pid)).filter((i) => i.level === 'error' && i.sceneId);
     const ids = [...new Set(bad.map((b) => b.sceneId))];
@@ -325,7 +326,7 @@ export async function reviseScene(pid: string, sceneId: string, instruction: str
   if (!config.anthropicKey) throw new MissingKey('anthropic', 'Revising a scene');
   const out = await callTool<any>({
     model: config.creativeModel, maxTokens: 4000,
-    system: `You are the motion designer on this ad. Revise ONE scene per the instruction. Keep the scene type unless the instruction asks to change it, or unless the instruction asks for something a library block cannot show, in which case draw it freehand (custom).\n${DESIGN_PROCESS}${DESIGN_CRAFT}${EXEMPLARS}${RULES}\n${SCENE_SPEC}${await skillBlock(pid, 'storyboard', p).catch(() => '')}${brandBlock(p)}`,
+    system: `You are the motion designer on this ad. Revise ONE scene per the instruction. Keep the scene type unless the instruction asks to change it, or unless the instruction asks for something a library block cannot show, in which case draw it freehand (custom).\n${DESIGN_PROCESS}${DESIGN_CRAFT}${DESIGN_PLAYBOOK}${EXEMPLARS}${RULES}\n${SCENE_SPEC}${await skillBlock(pid, 'storyboard', p).catch(() => '')}${brandBlock(p)}`,
     tool: { name: 'record_scene', description: 'The revised scene', input_schema: STORY_TOOL.input_schema.properties.scenes.items },
     content: [{ type: 'text', text: `${storyContext(p)}\n\nFULL STORYBOARD (for context):\n${p.scenes.map((s, k) => `${k + 1}. [${s.type}] ${s.vo?.text || ''}`).join('\n')}\n\nSCENE TO REVISE:\n${JSON.stringify({ type: sc.type, vo: sc.vo?.text, caption: sc.caption, status: sc.status, props: sc.props, facts: sc.facts })}\n\nINSTRUCTION: ${instruction}` }],
   });

@@ -17,6 +17,7 @@ import { resolveStyle, fontFaceCss } from '@truecut/engine/styles.js';
 import { sanitizeMarkup, markupText } from '@truecut/engine/talk.js';
 import { launchBrowser } from '../render/browser';
 import { callTool } from '../system/claude';
+import { slog, timed } from '../system/log';
 
 export const DESIGN_PROCESS = `
 HOW YOU DESIGN (do this for every moment, in this order, before you pick anything from a library)
@@ -46,6 +47,18 @@ MOTION (pick ONE personality for the whole video from the brand's feel, then kee
 TRUTH
 - Numbers, names and claims drawn must come from the approved facts or the speaker's words. Shapes may be generic; labels may not.
 `;
+export const DESIGN_PLAYBOOK = `
+FORMAT, HOOK AND PACING PLAYBOOK (from published template catalogues and ad-hook research: Hera's video templates, Segwise's hook study, B2W's explainer guide)
+1. Pick the format first, then everything else follows. Social ad 6-20s; app or UI demo 12-30s (phone mockups, callouts); product launch 20-45s; SaaS explainer 30-60s (problem, then solution, then outcome); animated infographic 15-40s (the data is the hero, one number per beat); data report 30-75s; sales follow-up 20-45s (recap, objection, proof, next step); onboarding 30-75s (one step per beat); event promo 10-30s (speaker, date, countdown, call to action). Say which you chose in the brief.
+2. Open with ONE hook, chosen on purpose: mistake callout (name the error the viewer makes), pain-point callout, surprising fact or number, mystery (hold back one detail), mini story (setup, conflict, resolution in three quick beats), quick demo (the result in the first seconds), head-to-head, price shock, bold claim, or a pattern interrupt (an unexpected visual change). A hook is one idea in two to three seconds; a viewer decides within about 1.7 seconds. Use a hook only if the sources support it; a claim you cannot source is not a hook.
+3. Show the payoff early, then spend the middle proving it. If the video drags, it drags between seconds 5 and 15: give that stretch a new picture every beat, never the same layout twice in a row.
+4. Design for sound off. The whole point must read from the picture and the on-screen words alone: bold type, one idea per frame, captions that never cover the focal point.
+5. Scene kinds worth drawing (pick the one that explains the line): problem-to-solution contrast (the frustration, then the relief); a screencast or UI with callouts that point at the real thing; a metaphor scene (a simple object standing for the idea, such as a gate, a funnel or a scale); a data or diagram scene that changes as the line is spoken (the numbers or nodes appear on the words that name them); a labelled product or process view; kinetic typography on the one phrase that matters.
+6. Story spine: problem, solution, outcome, always from the viewer's benefit. Pair every visual with the line being spoken; add credibility with real data, a real screenshot or a real quote, never with decoration.
+7. Reusable overlay pieces, drawn in the brand's own language, not copied from a pack: lower thirds, quote cards, callouts, chapter markers and metric labels.
+8. Before you finish a drawing, score it yourself on the rubric the reviewer will use: focus, legibility, motion, story, brand, each 1 to 10, and redraw anything below 8 before you hand it in.
+`;
+
 
 /** Two worked freehand drawings: the bar for "bespoke". The first for 1080-square ad scenes, the second for 900×700 talk beats. */
 export const EXEMPLARS = `
@@ -89,27 +102,36 @@ function serveEngine() {
   return new Promise<{ base: string; close: () => void }>((r) => srv.listen(0, '127.0.0.1', () => r({ base: `http://127.0.0.1:${(srv.address() as any).port}`, close: () => srv.close() })));
 }
 
-/** Stills of freehand drawings at t seconds (animations paused there), themed like the project. */
-export async function drawingStills(style: any, accent: string | undefined, items: Draw[], times: number[]): Promise<Record<string, Buffer[]>> {
+type Session = { base: string; browser: Awaited<ReturnType<typeof launchBrowser>>; close: () => Promise<void> };
+/** One engine server and one browser, shared by every drawing in a review (launching Chromium per drawing was most of the time). */
+async function openSession(): Promise<Session> {
+  const srv = await serveEngine(); const browser = await launchBrowser();
+  return { base: srv.base, browser, close: async () => { await browser.close().catch(() => {}); srv.close(); } };
+}
+
+async function stillsWith(sess: Session, style: any, accent: string | undefined, it: Draw, times: number[]): Promise<Buffer[]> {
   const S = resolveStyle(style || {}, accent); const P = S.palette;
-  const srv = await serveEngine(); const browser = await launchBrowser(); const out: Record<string, Buffer[]> = {};
+  const page = await sess.browser.newPage({ viewport: { width: it.w, height: it.h } });
   try {
-    for (const it of items) {
-      const page = await browser.newPage({ viewport: { width: it.w, height: it.h } });
-      const html = sanitizeMarkup(it.html);
-      await page.setContent(`<!doctype html><style>${fontFaceCss(srv.base + '/fonts/')}
+    const html = sanitizeMarkup(it.html);
+    await page.setContent(`<!doctype html><style>${fontFaceCss(sess.base + '/fonts/')}
 html,body{margin:0;width:${it.w}px;height:${it.h}px;overflow:hidden}
 body{--a:${P.accent};--a2:${P.accent2};--cr:${P.ink};--ink:${P.ink};--mu:${P.muted};--bg:${P.bg};--bg2:${P.bg2};--card:${P.card};--ln:${P.line};--ai:${S.accentInk};--fb:'${S.fonts.body}',sans-serif;--fd:'${S.fonts.display}',serif;--fm:'${S.fonts.mono}',monospace;background:var(--bg);color:var(--cr);font-family:var(--fb)}
 svg{position:absolute;left:0;top:0;width:100%;height:100%}</style><div id=b style="position:absolute;inset:0">${html}</div>`);
-      await page.evaluate(() => document.fonts.ready).catch(() => {});
-      out[it.id] = [];
-      for (const t of times) {
-        await page.evaluate((t) => { document.getAnimations().forEach((a) => { a.pause(); try { a.currentTime = t * 1000; } catch {} }); }, t);
-        out[it.id].push(await page.screenshot({ type: 'jpeg', quality: 80 }));
-      }
-      await page.close();
+    await page.evaluate(() => document.fonts.ready).catch(() => {});
+    const out: Buffer[] = [];
+    for (const t of times) {
+      await page.evaluate((t) => { document.getAnimations().forEach((a) => { a.pause(); try { a.currentTime = t * 1000; } catch {} }); }, t);
+      out.push(await page.screenshot({ type: 'jpeg', quality: 80 }));
     }
-  } finally { await browser.close(); srv.close(); }
+    return out;
+  } finally { await page.close().catch(() => {}); }
+}
+
+/** Stills of freehand drawings at t seconds (animations paused there), themed like the project. */
+export async function drawingStills(style: any, accent: string | undefined, items: Draw[], times: number[]): Promise<Record<string, Buffer[]>> {
+  const sess = await openSession(); const out: Record<string, Buffer[]> = {};
+  try { for (const it of items) out[it.id] = await stillsWith(sess, style, accent, it, times); } finally { await sess.close(); }
   return out;
 }
 
@@ -123,11 +145,10 @@ const JUDGE_TOOL = {
   } },
 };
 const total = (sc: any) => RUBRIC.reduce((a, k) => a + Math.max(1, Math.min(10, Number(sc?.[k]) || 1)), 0) / RUBRIC.length;
-const SHIP = 8; // average rubric score at which a drawing ships as is
 const TIMES = [0.7, 1.7, 3.4];
 
-async function judge(style: any, accent: string | undefined, brandText: string, it: Draw, html: string, repair: boolean) {
-  const stills = (await drawingStills(style, accent, [{ ...it, html }], TIMES))[it.id] || [];
+async function judge(sess: Session, style: any, accent: string | undefined, brandText: string, it: Draw, html: string, repair: boolean) {
+  const stills = await stillsWith(sess, style, accent, { ...it, html }, TIMES);
   // an empty or blank render counts as failed (zero), like ReLook's format constraint
   if (stills.length < TIMES.length || stills.every((b) => b.length < 2500)) return { score: 0, problems: ['the drawing did not render'], html: undefined as string | undefined };
   const content: any[] = [{ type: 'text', text: `What is said at this moment: "${it.says}"\nThe idea it should show: ${it.idea || '(not stated)'}\nStills at ${TIMES.join('s, ')}s (the last is the held end frame):` }];
@@ -141,23 +162,38 @@ async function judge(style: any, accent: string | undefined, brandText: string, 
   return { score: total(out?.scores), problems: (out?.problems || []) as string[], html: typeof out?.html === 'string' ? sanitizeMarkup(out.html) : undefined };
 }
 
-/** Render each drawing at three moments, score it on the rubric and let the critic propose a repair. A repair is accepted only if its own render scores strictly higher than what it replaces (at most two rounds, like ReLook's forced optimisation). Never throws: a failed review keeps the original. */
+const REPAIR_BELOW = 6; // a drawing at or above this is left alone even if it is short of SHIP: one repair round is only worth it for clear misses
+const PARALLEL = 4;
+
+/** Render each drawing at three moments and score it on the rubric. Drawings are scored together (one shared browser, up to PARALLEL at a time); only those that score below REPAIR_BELOW get a repair, and a repair is accepted only if its own render scores strictly higher (ReLook-style). A repair may not add words, so the fact guard sees the same labels. Never throws: a failed review keeps the original. */
 export async function critiqueDrawings(style: any, accent: string | undefined, brandText: string, items: Draw[], log: (m: string) => void = () => {}): Promise<Record<string, string>> {
   const fixed: Record<string, string> = {};
   if (!config.anthropicKey || !items.length) return fixed;
-  for (const it of items) {
-    try {
-      let best = it.html; let cur = await judge(style, accent, brandText, it, best, true); const first = cur.score;
-      for (let round = 0; round < 2 && cur.score < SHIP; round++) {
-        const cand = cur.html; const problems = cur.problems;
-        if (!cand || !/<(svg|div)/i.test(cand) || markupText(cand).length > markupText(it.html).length + 80) break; // never add new words: the fact guard must see the same labels
-        const next = await judge(style, accent, brandText, it, cand, true);
-        if (next.score <= cur.score) break; // not strictly better: keep the best so far
-        best = cand; cur = next;
-        log(`Redrew a scene after review (${first.toFixed(1)} → ${next.score.toFixed(1)}): ${problems.slice(0, 2).join('; ')}`);
-      }
-      if (best !== it.html) fixed[it.id] = best;
-    } catch (e: any) { log('Drawing review skipped: ' + (e?.message || e)); }
-  }
+  const t0 = Date.now(); let sess: Session | null = null;
+  try {
+    sess = await timed('design', 'browser.open', { drawings: items.length }, openSession);
+    const S = sess;
+    const review = async (it: Draw) => {
+      const t = Date.now();
+      try {
+        const first = await timed('design', 'score', { id: it.id }, () => judge(S, style, accent, brandText, it, it.html, false));
+        if (first.score >= REPAIR_BELOW) { slog('design', 'kept', { id: it.id, score: +first.score.toFixed(1), ms: Date.now() - t }); return; }
+        // a repair needs the critic's markup: ask once for problems + a redraw, then render and score the redraw
+        const rep = await timed('design', 'repair', { id: it.id, from: +first.score.toFixed(1) }, () => judge(S, style, accent, brandText, it, it.html, true));
+        const cand = rep.html;
+        if (!cand || !/<(svg|div)/i.test(cand) || markupText(cand).length > markupText(it.html).length + 80) { slog('design', 'repair.rejected', { id: it.id, why: !cand ? 'no markup' : 'added words or invalid' }); return; }
+        const next = await timed('design', 'rescore', { id: it.id }, () => judge(S, style, accent, brandText, it, cand, false));
+        if (next.score > first.score) {
+          fixed[it.id] = cand;
+          slog('design', 'repair.accepted', { id: it.id, from: +first.score.toFixed(1), to: +next.score.toFixed(1), ms: Date.now() - t });
+          log(`Redrew a scene after review (${first.score.toFixed(1)} → ${next.score.toFixed(1)}): ${(first.problems || []).slice(0, 2).join('; ')}`);
+        } else slog('design', 'repair.rejected', { id: it.id, why: 'not better', from: +first.score.toFixed(1), to: +next.score.toFixed(1) });
+      } catch (e: any) { slog('design', 'review.failed', { id: it.id, error: e?.message || String(e) }); log('Drawing review skipped: ' + (e?.message || e)); }
+    };
+    const queue = [...items];
+    await Promise.all(Array.from({ length: Math.min(PARALLEL, queue.length) }, async () => { for (let it = queue.shift(); it; it = queue.shift()) await review(it); }));
+    slog('design', 'critique.done', { drawings: items.length, repaired: Object.keys(fixed).length, ms: Date.now() - t0 });
+  } catch (e: any) { slog('design', 'critique.failed', { error: e?.message || String(e), ms: Date.now() - t0 }); }
+  finally { await sess?.close(); }
   return fixed;
 }

@@ -12,6 +12,7 @@ export const LIMITS = {
   skills: { n: 30, perMs: 60_000 },     // creating / importing team skills
   keys: { n: 10, perMs: 60_000 },       // saving / testing API keys
   read: { n: 600, perMs: 60_000 },
+  clientLog: { n: 60, perMs: 60_000 }, // playback diagnostics from the browser
   signinIp: { n: 10, perMs: 600_000 },  // sign-in link requests per IP
   signinEmail: { n: 3, perMs: 600_000 },// sign-in link emails per address
 } as const;

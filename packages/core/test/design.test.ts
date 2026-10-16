@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { drawingStills, DESIGN_CRAFT, DESIGN_PROCESS, EXEMPLARS } from '../src/design/craft';
+import { drawingStills, DESIGN_PLAYBOOK, DESIGN_CRAFT, DESIGN_PROCESS, EXEMPLARS } from '../src/design/craft';
 import { sanitizeMarkup } from '@truecut/engine/talk.js';
 
 describe('design-first guide', () => {
+  it('carries the reference-based playbook: formats, hooks, pacing, sound-off', () => {
+    for (const w of [/SaaS explainer/, /mistake callout/, /1\.7 seconds/, /sound off/, /problem, solution, outcome/, /lower thirds/, /score it yourself/]) expect(DESIGN_PLAYBOOK).toMatch(w);
+  });
   it('carries the process, the craft guide and sanitised exemplars', () => {
     expect(DESIGN_PROCESS).toMatch(/Find the picture/);
     expect(DESIGN_CRAFT).toMatch(/Playful/);

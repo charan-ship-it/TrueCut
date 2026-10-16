@@ -12,7 +12,8 @@ export default function Preview({ p, lay, bindSeek }: { p: Project; lay: any; bi
   const [ready, setReady] = useState(false);
   const [t, setT] = useState(1.6);
   const [playing, setPlaying] = useState(false);
-  const comp = useMemo(() => toComposition(p), [p]);
+  const compRef = useRef<{ key: string; comp: any } | null>(null);
+  const comp = useMemo(() => { const c = toComposition(p); const key = JSON.stringify(c); if (compRef.current?.key === key) return compRef.current.comp; compRef.current = { key, comp: c }; return c; }, [p]);
   const audio = p.audioFile && p.audioHash ? fileUrl(p.id, p.audioFile) : '';
   const post = (m: any) => ref.current?.contentWindow?.postMessage(m, '*');
 

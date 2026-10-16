@@ -28,6 +28,7 @@ import { runAgent, sdkEnabled, z, type AgentTool } from '../agent/sdk';
 import { useBuiltins, chooseSkills, skillBlock, projectSkills, toggleSkill } from '../skills/skills';
 import type { Angle, ChatMsg, FormatId, Project } from '@truecut/shared/types';
 
+import { slog } from '../system/log';
 import { normalizeForm, FORM_SPEC, ASK_GUIDE } from './form';
 import { detectSources, type Attachment } from '@truecut/shared/detect';
 export { detectSources, type Attachment };
@@ -112,6 +113,15 @@ function userEcho(p: Project, a: Action): string {
 }
 
 async function turn(pid: string, a: Action, jobId: string) {
+  // one start line and one timed finish line per turn, so a slow or stuck request can be found in the worker logs
+  slog('nick', 'turn.start', { project: pid, type: a.type, job: jobId, text: (a as any).text });
+  const t0 = Date.now();
+  try { return await turnInner(pid, a, jobId); }
+  catch (e: any) { slog('nick', 'turn.failed', { project: pid, type: a.type, job: jobId, ms: Date.now() - t0, error: e?.message || String(e) }); throw e; }
+  finally { slog('nick', 'turn.end', { project: pid, type: a.type, job: jobId, ms: Date.now() - t0 }); }
+}
+
+async function turnInner(pid: string, a: Action, jobId: string) {
   if (a.type === 'answers') return afterAnswers(pid, a.answers, jobId);
   if (a.type === 'angle') return pickAngle(pid, a.id, jobId);
   if (a.type === 'direction') return setDirection(pid, a.preset, jobId, true);

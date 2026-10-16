@@ -12,28 +12,40 @@ const RENDER = q.get('render') === '1';
 const wrap = document.getElementById('wrap');
 let inst = null, comp = null, audio = null, media = null, playing = false, t0 = 0, tStart = 0, cur = 0;
 function fit() { if (!inst || RENDER) return; const s = Math.min(innerWidth / inst.width, innerHeight / inst.height); wrap.style.transform = `translate(${(innerWidth - inst.width * s) / 2}px,${(innerHeight - inst.height * s) / 2}px) scale(${s})`; }
+const log = (ev, data) => { try { parent.postMessage({ type: 'nm:log', ev, data: data || {} }, '*'); } catch {} };
 function show(err) { const e = document.getElementById('err'); e.style.display = 'block'; e.textContent = String(err && err.stack || err); }
 async function load(c) {
+  // a re-mount used to stop playback for good (and tell the page it was paused). Remember it and carry on from the same moment once the new cut is ready.
+  const resume = playing && !RENDER;
+  const tLoad = performance.now();
+  if (!RENDER) log('comp.reload', { resume, at: +cur.toFixed(2) });
   try {
     // a re-mount drops the old preview from the page, but a detached <video> keeps playing its sound: stop it first
     if (media) { try { media.pause(); } catch {} }
     if (audio) { try { audio.pause(); } catch {} }
-    if (playing) { playing = false; parent.postMessage({ type: 'nm:paused' }, '*'); }
+    if (playing) playing = false;
     comp = c; const m = c && c.mode === 'talk' ? mountTalk : mountAd; inst = m(wrap, c, { format, assetBase: q.get('assetBase') || '', fontBase: './fonts/', render: RENDER });
     if (RENDER && c && c.mode === 'talk') { document.documentElement.style.background = 'transparent'; document.body.style.background = 'transparent'; }
-    media = inst.media || null; if (media) { media.addEventListener('ended', () => { playing = false; parent.postMessage({ type: 'nm:ended' }, '*'); }); }
+    media = inst.media || null; if (media) { media.addEventListener('ended', () => { playing = false; parent.postMessage({ type: 'nm:ended', t: media.currentTime, duration: inst.duration, early: media.currentTime < inst.duration - 0.5 }, '*'); }); if (!RENDER) for (const ev of ['waiting', 'stalled', 'error']) media.addEventListener(ev, () => log(ev === 'error' ? 'media.error' : ev === 'waiting' ? 'waiting' : 'stall', { at: +media.currentTime.toFixed(2), code: media.error && media.error.code })); }
     window.DUR = inst.duration; window.render = (t) => inst.render(t); window.LAYOUT = inst.layout;
     window.ready = inst.ready; await inst.ready; inst.render(cur); fit();
+    if (!RENDER) log('ready', { ms: Math.round(performance.now() - tLoad), duration: +inst.duration.toFixed(1) });
     parent.postMessage({ type: 'nm:ready', duration: inst.duration, layout: { scenes: inst.layout.scenes.map(s => ({ id: s.id, start: s.start, end: s.end, type: s.type })) } }, '*');
-  } catch (e) { show(e); }
+    if (resume && cur < inst.duration - 0.05) { start(); parent.postMessage({ type: 'nm:resumed' }, '*'); log('resumed', { at: +cur.toFixed(2) }); }
+    else if (resume) parent.postMessage({ type: 'nm:paused', why: 'reload-at-end' }, '*');
+  } catch (e) { show(e); log('player.error', { message: String(e && e.message || e).slice(0, 160) }); if (resume) parent.postMessage({ type: 'nm:paused', why: 'reload-failed' }, '*'); }
 }
 window.addEventListener('resize', fit);
+document.addEventListener('visibilitychange', () => { if (!RENDER && document.visibilityState === 'hidden' && playing) log('hidden', { at: +cur.toFixed(2) }); });
+let lastTick = 0;
+function start() { playing = true; t0 = cur; tStart = performance.now(); lastTick = 0; if (media) { media.currentTime = cur; media.play().catch((e) => log('media.error', { message: String(e && e.message || e).slice(0, 80) })); } else if (audio) { audio.currentTime = cur; audio.play().catch((e) => log('audio.error', { message: String(e && e.message || e).slice(0, 80) })); } requestAnimationFrame(tick); }
 function tick() {
   if (!playing || !inst) return;
+  const now = performance.now(); if (lastTick && now - lastTick > 700 && !RENDER) log('frame.gap', { ms: Math.round(now - lastTick), at: +cur.toFixed(2) }); lastTick = now;
   const t = media && !media.paused ? media.currentTime : audio && !audio.paused ? audio.currentTime : t0 + (performance.now() - tStart) / 1000;
   cur = Math.min(t, inst.duration); inst.render(cur);
   parent.postMessage({ type: 'nm:time', t: cur }, '*');
-  if (cur >= inst.duration) { playing = false; if (audio) audio.pause(); parent.postMessage({ type: 'nm:ended' }, '*'); return; }
+  if (cur >= inst.duration) { playing = false; if (audio) audio.pause(); parent.postMessage({ type: 'nm:ended', t: cur, duration: inst.duration }, '*'); return; }
   requestAnimationFrame(tick);
 }
 window.addEventListener('message', (ev) => {
@@ -49,7 +61,7 @@ window.addEventListener('message', (ev) => {
     if (audio) { audio.__url = url; audio.currentTime = cur; if (playing) audio.play().catch(() => {}); }
   }
   if (m.type === 'nm:seek' && inst) { cur = m.t; inst.render(cur); if (media) media.currentTime = cur; if (audio) audio.currentTime = cur; if (playing) { t0 = cur; tStart = performance.now(); } }
-  if (m.type === 'nm:play' && inst) { if (cur >= inst.duration - 0.05) cur = 0; playing = true; t0 = cur; tStart = performance.now(); if (media) { media.currentTime = cur; media.play().catch(() => {}); } else if (audio) { audio.currentTime = cur; audio.play().catch(() => {}); } requestAnimationFrame(tick); }
+  if (m.type === 'nm:play' && inst) { if (cur >= inst.duration - 0.05) cur = 0; start(); }
   if (m.type === 'nm:pause') { playing = false; if (media) media.pause(); if (audio) audio.pause(); }
   if (m.type === 'nm:stop') { playing = false; if (media) media.pause(); if (audio) { audio.pause(); } }
 });

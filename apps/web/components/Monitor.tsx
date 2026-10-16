@@ -6,6 +6,7 @@ import { SCENE_TYPES } from '@truecut/engine/timeline.js';
 import { layoutOf } from '@truecut/shared/compose';
 import { DIRECTIONS } from '@truecut/engine/styles.js';
 import type { Project } from '@truecut/shared/types';
+import { plog, plogProject } from './plog';
 
 const DIMS: Record<string, [number, number]> = { '4x5': [1080, 1350], '9x16': [1080, 1920], '1x1': [1080, 1080] };
 const tc = (x: number) => `${String(Math.floor(x / 60)).padStart(2, '0')}:${(x % 60).toFixed(2).padStart(5, '0')}`;
@@ -19,6 +20,8 @@ export default function Monitor({ p, comp, lay: lay0, style, bindSeek, issues, o
   const lay = useMemo(() => (style ? layoutOf(c) : lay0), [c, style, lay0]);
   const audio = p.kind !== 'talk' && p.audioFile && p.audioHash && !style ? fileUrl(p.id, p.audioFile) : '';
   const post = (m: any) => ref.current?.contentWindow?.postMessage(m, '*');
+  const want = useRef(false); // true while the person has asked for playback: a pause that arrives while this is set was not requested
+  useEffect(() => { plogProject(p.id); }, [p.id]);
   useEffect(() => {
     const on = (e: MessageEvent) => {
       if (e.source !== ref.current?.contentWindow) return;
@@ -26,18 +29,24 @@ export default function Monitor({ p, comp, lay: lay0, style, bindSeek, issues, o
       if (m.type === 'nm:want') post({ type: 'nm:comp', comp: c });
       if (m.type === 'nm:ready') { post({ type: 'nm:seek', t }); post({ type: 'nm:audio', url: audio }); }
       if (m.type === 'nm:time') setT(m.t);
-      if (m.type === 'nm:ended' || m.type === 'nm:paused') setPlaying(false);
+      if (m.type === 'nm:ended' || m.type === 'nm:paused') {
+        if (m.type === 'nm:paused' && want.current) plog('pause.unrequested', { t: +t.toFixed(2), why: m.why || 'unknown' });
+        if (m.type === 'nm:ended') plog(m.early ? 'ended.early' : 'ended', { t: m.t, duration: m.duration });
+        want.current = false; setPlaying(false);
+      }
+      if (m.type === 'nm:resumed') { setPlaying(true); }
+      if (m.type === 'nm:log') plog(m.ev, m.data || {});
     };
     window.addEventListener('message', on); return () => window.removeEventListener('message', on);
   }); // eslint-disable-line
-  useEffect(() => { if (!p.scenes.length && !p.talk?.beats?.length) return; const h = setTimeout(() => post({ type: 'nm:comp', comp: c }), style ? 60 : 250); return () => clearTimeout(h); }, [c]); // eslint-disable-line
+  useEffect(() => { if (!p.scenes.length && !p.talk?.beats?.length) return; const h = setTimeout(() => { plog('comp.reload', { scenes: p.scenes.length, beats: p.talk?.beats?.length || 0, playing: want.current, preview: !!style }); post({ type: 'nm:comp', comp: c }); }, style ? 60 : 250); return () => clearTimeout(h); }, [c]); // eslint-disable-line
   useEffect(() => { post({ type: 'nm:audio', url: audio }); }, [audio]); // eslint-disable-line
   useEffect(() => { bindSeek((x: number) => { setT(x); post({ type: 'nm:seek', t: x }); }); }); // eslint-disable-line
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if (/INPUT|TEXTAREA/.test((e.target as HTMLElement).tagName) || (e.target as HTMLElement).isContentEditable) return; if (e.code === 'Space' && (p.scenes.length || p.talk?.beats?.length)) { e.preventDefault(); toggle(); } };
     window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
   }); // eslint-disable-line
-  const toggle = () => { if (playing) { post({ type: 'nm:pause' }); setPlaying(false); } else { post({ type: 'nm:play' }); setPlaying(true); } };
+  const toggle = () => { if (playing) { want.current = false; plog('pause.user', { t: +t.toFixed(2) }); post({ type: 'nm:pause' }); setPlaying(false); } else { want.current = true; plog('play.user', { t: +t.toFixed(2) }); post({ type: 'nm:play' }); setPlaying(true); } };
   const seek = (x: number) => { setT(x); post({ type: 'nm:seek', t: x }); };
   const [w, h] = DIMS[fmt];
   const dur = lay?.duration || 0;
@@ -51,7 +60,7 @@ export default function Monitor({ p, comp, lay: lay0, style, bindSeek, issues, o
         <span className="mono" style={{ color: 'var(--ink)' }}>Monitor</span>
         {style && <span className="pill acc">Previewing {DIRECTIONS[style.preset]?.label}</span>}
         <span className="grow" />
-        <div className="seg">{Object.keys(DIMS).map((f) => <button key={f} className={fmt === f ? 'on' : ''} onClick={() => { setFmt(f); setPlaying(false); }}>{f.replace('x', ':')}</button>)}</div>
+        <div className="seg">{Object.keys(DIMS).map((f) => <button key={f} className={fmt === f ? 'on' : ''} onClick={() => { want.current = false; setFmt(f); setPlaying(false); }}>{f.replace('x', ':')}</button>)}</div>
       </div>
       <div className="monbody">
         {p.scenes.length || p.talk?.beats?.length ? (

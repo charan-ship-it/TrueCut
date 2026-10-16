@@ -58,7 +58,15 @@ export function useProject(id: string) {
     } catch (e: any) { setToast(e.message); }
   }, [id, flush, reload]);
 
-  const comp = useMemo(() => (data ? toComposition(data.project) : null), [data]);
+  // The project is re-fetched every 1-6 s and every fetch is a new object, but the composition (what the player draws) rarely changes.
+  // Hand the player the SAME object while its content is unchanged: a new identity re-mounts the player and stops playback.
+  const compRef = useRef<{ key: string; comp: any } | null>(null);
+  const comp = useMemo(() => {
+    if (!data) return null;
+    const c = toComposition(data.project); const key = JSON.stringify(c);
+    if (compRef.current?.key === key) return compRef.current.comp;
+    compRef.current = { key, comp: c }; return c;
+  }, [data]);
   const lay = useMemo(() => (comp ? (layoutOf(comp as any) as ReturnType<typeof layout>) : null), [comp]);
   return { data, err, toast, setToast, reload, save, act, send, lay, comp, running };
 }

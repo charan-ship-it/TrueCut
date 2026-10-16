@@ -14,6 +14,7 @@ import { config } from '@truecut/config';
 import { getProject, newId, updateProject } from '@truecut/db';
 import { projectPath, writeAtomic } from '@truecut/storage';
 import { ffmpeg, ffmpegPath, run, decodeAudio, probeDuration } from '../render/media';
+import { DESIGN_PROCESS, DESIGN_CRAFT, EXEMPLARS, critiqueDrawings } from '../design/craft';
 import { callTool } from '../ads/ai';
 import { chooseSkills, skillBlock } from '../skills/skills';
 import { numbersIn, allowedNumbers } from '@truecut/shared/facts';
@@ -106,7 +107,7 @@ const fmtT = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStar
 
 // ───────────────────────── the edit (Claude) ─────────────────────────
 export const TOOLKIT_SPEC = `
-Motion toolkit — every beat gets ONE illustration (visual.kind + props). Draw the IDEA the speaker is saying, like a great explainer animator would. Vary kinds; never use the same kind 3 beats in a row.
+Motion toolkit: building blocks for the ONE illustration of each beat (visual.kind + props). Draw the IDEA the speaker is saying, like a great explainer animator would. A block is right only when it draws exactly that picture; "custom" (freehand) is your main tool for the hook, the central explanation and the payoff, not a last resort. Vary kinds; never use the same kind 3 beats in a row.
 - cards: { items: [{title ≤18 chars, sub? ≤24, icon}] (2-4), highlight?: index lit in accent halfway through }  → lists of types/options/pillars
 - grid: { icon, count 6-16, cols?, highlight?: [indices], sequence?: true (a highlight hops cell to cell, e.g. people speaking), tags?: ["≤12 chars" ×≤3] }  → many things: files, people, tools, meetings
 - bars: { title, kpis?: [{label, value}] (≤3, real numbers only), values: [numbers 6-10], highlight?: index }  → a dashboard / systems / data
@@ -121,7 +122,7 @@ Motion toolkit — every beat gets ONE illustration (visual.kind + props). Draw 
 - flow: { steps: [{title ≤14, icon}] (3-5) }  → a process / pipeline
 - orbit: { icon, label ≤34 }  → something being kept/captured/centralised
 - image: { image: visualId (REQUIRED, from the list), callout? ≤30 }  → show the real product/site
-- custom: { html: "<svg viewBox='0 0 900 700'>…</svg>" (or plain HTML) with a <style> block of CSS @keyframes }  → FREEHAND: when no kind above fits the idea, DRAW it yourself. Rules: size it in a 900×700 viewBox and keep it centred with margins; use the theme colours via var(--ink), var(--a) (accent), var(--bg), var(--card), var(--mu); animate with CSS keyframes (animation: name .8s ease-out both; animation-delay: .3s) so things build in step with the sentence; thin outlines, plain shapes, short labels (≤20 chars); at most ~6000 characters; NO scripts, handlers, links or external images (a real screenshot may be used as <img data-asset="visualId">). Any number or name drawn must be one the speaker says. Use it when it makes the idea clearer than a template would (a diagram, a custom metaphor, a map of how things connect), and prefer a template kind when one fits well.
+- custom: { html: "<svg viewBox='0 0 900 700'>…</svg>" (or plain HTML) with a <style> block of CSS @keyframes }  → FREEHAND: when no kind above fits the idea, DRAW it yourself. Rules: size it in a 900×700 viewBox and keep it centred with margins; use the theme colours via var(--ink), var(--a) (accent), var(--bg), var(--card), var(--mu); animate with CSS keyframes (animation: name .8s ease-out both; animation-delay: .3s) so things build in step with the sentence; thin outlines, plain shapes, short labels (≤20 chars); at most ~6000 characters; NO scripts, handlers, links or external images (a real screenshot may be used as <img data-asset="visualId">). Any number or name drawn must be one the speaker says. Use it when it makes the idea clearer than a template would (a diagram, a custom metaphor, a map of how things connect), and use a block instead only when it draws exactly the picture you found.
 Icons: ${TOOLKIT_ICONS.join(', ')}.`;
 
 const PLAN_TOOL = {
@@ -132,7 +133,8 @@ const PLAN_TOOL = {
     speaker: { type: 'object', properties: { name: { type: 'string' }, role: { type: 'string' } } },
     music: { type: 'object', description: 'the bed under the founder\'s voice', properties: { genre: { type: 'string', enum: ['lofi', 'piano', 'ambient', 'cinematic', 'bright', 'none'] }, why: { type: 'string' } } },
     keep: { type: 'array', description: 'word-index ranges to KEEP, in chronological order (whole sentences or clauses; drop filler, false starts, repetition, tangents)', items: { type: 'object', required: ['from', 'to'], properties: { from: { type: 'number' }, to: { type: 'number' } } } },
-    beats: { type: 'array', description: 'consecutive beats covering all kept words, each ~1.8-5 s of speech (one idea each)', items: { type: 'object', required: ['from', 'to', 'headline', 'accent', 'visual'], properties: {
+    beats: { type: 'array', description: 'consecutive beats covering all kept words, each ~1.8-5 s of speech (one idea each)', items: { type: 'object', required: ['idea', 'from', 'to', 'headline', 'accent', 'visual'], properties: {
+      idea: { type: 'string', description: 'FIRST decide this: the picture that makes what is said obvious with the sound off, one specific sentence. Then choose the visual.' },
       from: { type: 'number', description: 'first word index (must be inside a kept range)' }, to: { type: 'number' },
       headline: { type: 'string', description: '1-3 words that name the idea, e.g. "Tribal knowledge", "When they leave"' },
       accent: { type: 'string', description: 'the ONE word of the headline set in the accent serif italic' },
@@ -153,7 +155,7 @@ export async function planTalk(pid: string, log: Log, instruction = '') {
     log(`Claude is editing ${fmtDur(media.duration)} of talk down to ~${target}s…`);
     const vis = p.visuals.filter((v) => v.use).slice(0, 20).map((v) => `${v.id} · ${v.kind} · ${v.description || v.origin}`).join('\n');
     const facts = p.facts.filter((f) => f.approved).slice(0, 30).map((f) => `- ${f.statement}`).join('\n');
-    const sys = `You are a world-class short-form video editor and explainer animator. You cut founder talks, podcasts and interviews into tight, high-retention shorts for LinkedIn and Instagram, and design a custom animated illustration for every beat (like the best explainer channels). Rules:
+    const sys = `You are a world-class short-form video editor and explainer animator. You cut founder talks, podcasts and interviews into tight, high-retention shorts for LinkedIn and Instagram, and design the illustration for every beat the way a top explainer animator does: first understand what the speaker means and what the person asked for, find the picture that makes the idea obvious with the sound off, and only then choose a building block or draw it freehand. Rules:
 1. Keep the speaker's real words only — you choose WHAT to keep (whole clauses, in order), never rewrite what they said.
 2. Target about ${target} seconds of kept speech (±15%). Open on the strongest hook line if it's not first (you may start mid-talk). End on a complete thought or call to action.
 3. Each beat = one idea, ~1.8-5 seconds. Headlines are 1-3 words that NAME the idea (not a transcript). One accent word per headline.
@@ -161,7 +163,7 @@ export async function planTalk(pid: string, log: Log, instruction = '') {
 5. Use the product/company name only as the speaker says it or from the facts.
 5b. Pick the music bed that fits the speaker's tone and pace (warm/reflective → piano or ambient, upbeat founder energy → bright or lofi, big-vision → cinematic, or none when the talk is intimate). The founder's own voice is always the audio; the bed just sits quietly under it.
 6. Headlines in sentence case ("When they leave", not "When They Leave"); the accent must be one of the headline's words, exactly.
-${TOOLKIT_SPEC}${await chooseSkills(pid).catch(() => null).then(() => skillBlock(pid, 'talk')).catch(() => '')}${brandBlock(p)}`;
+${DESIGN_PROCESS}${DESIGN_CRAFT}${EXEMPLARS}${TOOLKIT_SPEC}${await chooseSkills(pid).catch(() => null).then(() => skillBlock(pid, 'talk')).catch(() => '')}${brandBlock(p)}`;
     const planPrompt = `Brand: ${p.intake.brandName || ''} · Product: ${p.intake.productName || ''}\nSpeaker: ${p.talk.speaker.name || 'unknown'} ${p.talk.speaker.role ? '(' + p.talk.speaker.role + ')' : ''}\nAudience: ${p.intake.audience || ''}\n${instruction || p.talk.instruction ? `EDITOR'S NOTE FROM THE CUSTOMER: ${instruction || p.talk.instruction}\n` : ''}\nVISUALS AVAILABLE (for image/brand kinds):\n${vis || '—'}\n\nOTHER FACTS:\n${facts || '—'}\n\nTRANSCRIPT (word index ranges [from-to], start time, speaker) — total ${fmtDur(media.duration)}, TARGET ${target}s:\n${sents.map((s) => `[${s.from}-${s.to}] (${fmtT(s.s)}, ${(s.e - s.s).toFixed(1)}s${s.sp && media.speakers.length > 1 ? ' ' + s.sp : ''}) ${s.text}`).join('\n')}\n\nCall record_edit.`;
     out = await callTool<any>({ model: config.creativeModel, maxTokens: 12000, system: sys, tool: PLAN_TOOL, content: [{ type: 'text', text: planPrompt }] });
     // hard length discipline: send the edit back until it fits the target
@@ -180,9 +182,21 @@ ${TOOLKIT_SPEC}${await chooseSkills(pid).catch(() => null).then(() => skillBlock
     out = heuristicPlan(sents, words, target);
   }
   await applyPlan(pid, out, words, media);
+  if (config.anthropicKey) await reviewTalkDrawings(pid, words, log).catch(() => {});
   const issues = await guardTalk(pid);
   const fp = await getProject(pid);
   log(`Edit ready: ${fp.talk.beats.length} beats, ${fp.talk.duration.toFixed(1)}s${issues ? ` (${issues} unverified number${issues > 1 ? 's' : ''} removed)` : ''}`);
+}
+
+/** Nick looks at his own freehand beats (rendered stills) and redraws the ones a critic would send back. */
+async function reviewTalkDrawings(pid: string, words: W[], log: Log, only?: string[]) {
+  const p = await getProject(pid);
+  const items = p.talk.beats.filter((b: any) => b.visual?.kind === 'custom' && (!only || only.includes(b.id))).slice(0, 4)
+    .map((b: any) => ({ id: b.id, html: String(b.visual.html || ''), w: 900, h: 700, says: words.slice(b.from ?? 0, (b.to ?? 0) + 1).map((w) => w.w).join(' '), idea: `${b.headline}${b.sub ? ' — ' + b.sub : ''}` }));
+  if (!items.length) return;
+  log(`Looking at ${items.length} freehand illustration${items.length > 1 ? 's' : ''} like a critic would…`);
+  const fixed = await critiqueDrawings(p.style, (p.intake as any).accent, brandBlock(p), items, (m) => log(m));
+  if (Object.keys(fixed).length) await updateProject(pid, (pp) => { for (const b of pp.talk.beats as any[]) if (fixed[b.id]) b.visual = { ...b.visual, html: fixed[b.id] }; });
 }
 
 /** Seconds of speech an edit keeps (before pause trimming). */
@@ -276,10 +290,11 @@ export async function reviseBeat(pid: string, index: number, instruction: string
   if (!config.anthropicKey) throw new MissingKey('anthropic', 'Revising a beat');
   const words = loadWords(pid, p.talk.media[0]);
   const said = words.slice(b.from ?? 0, (b.to ?? 0) + 1).map((w) => w.w).join(' ');
-  const out = await callTool<any>({ model: config.creativeModel, maxTokens: 2500, system: `You are the explainer animator. Redesign ONE beat's headline/accent/sub/illustration per the instruction. Numbers only if spoken.\n${TOOLKIT_SPEC}${await skillBlock(pid, 'talk', p).catch(() => '')}${brandBlock(await getProject(pid))}`,
+  const out = await callTool<any>({ model: config.creativeModel, maxTokens: 2500, system: `You are the explainer animator. Redesign ONE beat's headline/accent/sub/illustration per the instruction, starting from what the person asked for and the picture that explains the idea, not from a template. Numbers only if spoken.\n${DESIGN_PROCESS}${DESIGN_CRAFT}${EXEMPLARS}${TOOLKIT_SPEC}${await skillBlock(pid, 'talk', p).catch(() => '')}${brandBlock(await getProject(pid))}`,
     tool: { name: 'record_beat', description: 'the revised beat', input_schema: { type: 'object', required: ['headline', 'accent', 'visual'], properties: { headline: { type: 'string' }, accent: { type: 'string' }, sub: { type: 'string' }, visual: { type: 'object' } } } },
     content: [{ type: 'text', text: `The speaker says during this beat: "${said}"\nCurrent: ${JSON.stringify({ headline: b.headline, accent: b.accent, sub: b.sub, visual: b.visual })}\nInstruction: ${instruction}` }] });
   await updateProject(pid, (pp) => { const x = pp.talk.beats[index]; if (x) Object.assign(x, { headline: String(out.headline || x.headline).slice(0, 40), accent: out.accent || x.accent, sub: out.sub, visual: sanitizeVisual(out.visual) }); });
+  await reviewTalkDrawings(pid, words, () => {}, [b.id]).catch(() => {});
   await guardTalk(pid);
 }
 

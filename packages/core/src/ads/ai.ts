@@ -11,12 +11,13 @@ import { verifyFact, numbersIn, checkScenes } from '@truecut/shared/facts';
 import type { Fact, Project, Question, Scene, Visual } from '@truecut/shared/types';
 import { SCENE_TYPES } from '@truecut/engine/timeline.js';
 import { sanitizeMarkup } from '@truecut/engine/talk.js';
+import { DESIGN_PROCESS, DESIGN_CRAFT, EXEMPLARS, critiqueDrawings } from '../design/craft';
 import { projectLayout } from '@truecut/shared/compose';
 
 type Log = (msg: string, pct?: number) => void;
 
 export const SCENE_SPEC = `
-Scene library (type → props). Strings are short. All numbers MUST come from approved facts.
+Scene library: building blocks (type → props), for when a block draws exactly the picture you found. "custom" is NOT a fallback, it is your main tool for the hook, the central explanation and the payoff. Strings are short. All numbers MUST come from approved facts.
 - stat: { kicker: "SOURCE · CONTEXT label", value: integer, label: "what the number counts", chips: [{value: integer, label}] (0-3), source: "where it came from", rows?: [{title, meta, status}] (0-2 real records shown faintly behind) }
 - headline: { lines: ["≤22 chars", ...] (1-3 lines), image?: visualId (screenshot shown tilted behind), markerLabel?: "idea" }
 - bars: { kicker, value: integer, barsLabel: "Grouped by …", bars: [{label, value: number}] (1-4), tagline: "≤26 chars" }
@@ -177,7 +178,8 @@ const STORY_TOOL = {
     type: 'object', required: ['brief', 'scenes'],
     properties: {
       brief: { type: 'object', properties: { title: { type: 'string' }, concept: { type: 'string' }, insight: { type: 'string' }, audience: { type: 'string' }, proposition: { type: 'string' }, hook: { type: 'string' } } },
-      scenes: { type: 'array', items: { type: 'object', required: ['type', 'vo', 'props'], properties: {
+      scenes: { type: 'array', items: { type: 'object', required: ['idea', 'type', 'vo', 'props'], properties: {
+        idea: { type: 'string', description: 'FIRST decide this: the picture that makes this moment obvious with the sound off, in one specific sentence about THIS company and THIS line. Then choose type.' },
         type: { type: 'string', enum: Object.keys(SCENE_TYPES) },
         vo: { type: 'string', description: 'the spoken line (usually 4-9 words; respect the total word budget)' },
         caption: { type: 'string' }, status: { type: 'string' },
@@ -226,7 +228,7 @@ export async function storyboard(pid: string, log: Log) {
     log('Writing the brief and storyboard with Claude…', 20);
     out = await callTool<any>({
       model: config.creativeModel, maxTokens: 16000,
-      system: `You are an award-winning motion designer and senior B2B marketer. You write 15-45 second motion-graphics ads for LinkedIn and Instagram that feel alive every second, built ONLY from verified product reality. You think like a product manager (one clear proposition), a copywriter (spoken lines that land) and an editor (beats on a 120 BPM grid).\n${RULES}\n${SCENE_SPEC}${skills}`,
+      system: `You are an award-winning motion designer and senior B2B marketer. You write 15-45 second motion-graphics ads for LinkedIn and Instagram that feel alive every second, built ONLY from verified product reality. You think like a product manager (one clear proposition), a copywriter (spoken lines that land) and an editor (beats on a 120 BPM grid), and you design like a top motion designer: you start from what the person needs, not from a template.\n${DESIGN_PROCESS}${DESIGN_CRAFT}${EXEMPLARS}${RULES}\n${SCENE_SPEC}${skills}`,
       tool: STORY_TOOL,
       content: [{ type: 'text', text: storyContext(p) + '\n\nWrite the storyboard now via record_storyboard.' }],
     });
@@ -241,6 +243,7 @@ export async function storyboard(pid: string, log: Log) {
     pp.audioFile = undefined; pp.audioHash = undefined;
     pp.stage = 'storyboard';
   });
+  if (config.anthropicKey) await reviewDrawings(pid, log).catch(() => {});
   if (config.anthropicKey) {
     const bad = checkScenes(await getProject(pid)).filter((i) => i.level === 'error' && i.sceneId);
     const ids = [...new Set(bad.map((b) => b.sceneId))];
@@ -264,6 +267,17 @@ export async function storyboard(pid: string, log: Log) {
   log(`Storyboard ready: ${(out.scenes || []).length} scenes${left ? ` — ${left} fact issue(s) need you` : ' — every number traced'}`, 100);
 }
 
+/** Nick looks at his own freehand scenes (rendered stills) and redraws the ones a critic would send back. */
+export async function reviewDrawings(pid: string, log: Log, only?: string[]) {
+  const p = await getProject(pid);
+  const items = p.scenes.filter((s) => s.type === 'custom' && (!only || only.includes(s.id))).slice(0, 4)
+    .map((s) => ({ id: s.id, html: String(s.props?.html || ''), w: 1080, h: 1080, says: s.vo?.text || s.caption || '', idea: s.notes }));
+  if (!items.length) return;
+  log(`Looking at ${items.length} freehand scene${items.length > 1 ? 's' : ''} like a critic would…`, 86);
+  const fixed = await critiqueDrawings(p.style, (p.intake as any).accent, brandBlock(p), items, (m) => log(m));
+  if (Object.keys(fixed).length) await updateProject(pid, (pp) => { for (const s of pp.scenes) if (fixed[s.id]) s.props = { ...s.props, html: fixed[s.id] }; });
+}
+
 export function normalizeScene(p: Project, s: any): Scene {
   let type = SCENE_TYPES[s.type as keyof typeof SCENE_TYPES] ? s.type : 'headline';
   const vids = new Set(p.visuals.map((v) => v.id));
@@ -282,7 +296,7 @@ export function normalizeScene(p: Project, s: any): Scene {
   if ((type === 'stat' || type === 'bars') && !(Number(props.value) > 0)) { t2 = 'headline'; props.lines = props.lines || splitLines(String(props.label || props.kicker || (typeof s.vo === 'string' ? s.vo : s.vo?.text) || '')); }
   for (const k of ['image']) { const v = p.visuals.find((x) => x.id === props[k]); if (v && v.kind === 'logo' && (t2 === 'reveal' || t2 === 'end')) { props.logo = true; props.shape = 'square'; } }
   const vo = typeof s.vo === 'string' ? { text: s.vo } : s.vo?.text ? { text: s.vo.text } : undefined;
-  return { id: s.id || 'sc' + newId().slice(0, 6), type: t2 as Scene['type'], vo, caption: s.caption || undefined, status: s.status || undefined, duration: s.duration || undefined, props, facts: Array.isArray(s.facts) ? s.facts : [], notes: s.notes };
+  return { id: s.id || 'sc' + newId().slice(0, 6), type: t2 as Scene['type'], vo, caption: s.caption || undefined, status: s.status || undefined, duration: s.duration || undefined, props, facts: Array.isArray(s.facts) ? s.facts : [], notes: [s.idea, s.notes].filter(Boolean).join(' · ') || undefined };
 }
 
 export function splitLines(t: string, max = 20) {
@@ -311,7 +325,7 @@ export async function reviseScene(pid: string, sceneId: string, instruction: str
   if (!config.anthropicKey) throw new MissingKey('anthropic', 'Revising a scene');
   const out = await callTool<any>({
     model: config.creativeModel, maxTokens: 4000,
-    system: `You are the motion designer on this ad. Revise ONE scene per the instruction. Keep the scene type unless the instruction asks to change it.\n${RULES}\n${SCENE_SPEC}${await skillBlock(pid, 'storyboard', p).catch(() => '')}${brandBlock(p)}`,
+    system: `You are the motion designer on this ad. Revise ONE scene per the instruction. Keep the scene type unless the instruction asks to change it, or unless the instruction asks for something a library block cannot show, in which case draw it freehand (custom).\n${DESIGN_PROCESS}${DESIGN_CRAFT}${EXEMPLARS}${RULES}\n${SCENE_SPEC}${await skillBlock(pid, 'storyboard', p).catch(() => '')}${brandBlock(p)}`,
     tool: { name: 'record_scene', description: 'The revised scene', input_schema: STORY_TOOL.input_schema.properties.scenes.items },
     content: [{ type: 'text', text: `${storyContext(p)}\n\nFULL STORYBOARD (for context):\n${p.scenes.map((s, k) => `${k + 1}. [${s.type}] ${s.vo?.text || ''}`).join('\n')}\n\nSCENE TO REVISE:\n${JSON.stringify({ type: sc.type, vo: sc.vo?.text, caption: sc.caption, status: sc.status, props: sc.props, facts: sc.facts })}\n\nINSTRUCTION: ${instruction}` }],
   });
@@ -319,6 +333,7 @@ export async function reviseScene(pid: string, sceneId: string, instruction: str
     const k = pp.scenes.findIndex((s) => s.id === sceneId);
     if (k >= 0) { const n = normalizeScene(pp, { ...out, id: sceneId }); if (n.vo && sc.vo && n.vo.text === sc.vo.text) n.vo = sc.vo; pp.scenes[k] = n; }
   });
+  if ((await getProject(pid)).scenes.find((s) => s.id === sceneId)?.type === 'custom') await reviewDrawings(pid, () => {}, [sceneId]).catch(() => {});
 }
 
 /** Seconds per spoken word we plan with: measured ElevenLabs narration is ~2.4 words/s. */

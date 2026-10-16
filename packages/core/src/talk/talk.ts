@@ -14,6 +14,8 @@ import { config } from '@truecut/config';
 import { getProject, newId, updateProject } from '@truecut/db';
 import { projectPath, writeAtomic } from '@truecut/storage';
 import { ffmpeg, ffmpegPath, run, decodeAudio, probeDuration } from '../render/media';
+import { voiceCleanFilter } from './voice';
+import { slog } from '../system/log';
 import { DESIGN_PROCESS, DESIGN_CRAFT, DESIGN_PLAYBOOK, EXEMPLARS, critiqueDrawings } from '../design/craft';
 import { callTool } from '../ads/ai';
 import { chooseSkills, skillBlock } from '../skills/skills';
@@ -305,7 +307,7 @@ function cropFor(m: Media, outW: number, outH: number) {
   const ch = even(sw / A); const y = Math.round(Math.max(0, Math.min(sh - ch, fy * sh - ch * 0.42))); return `crop=${sw}:${ch}:0:${y}`;
 }
 
-function cutFilter(p: Project, outW: number, outH: number, withVideo: boolean, accent: string) {
+function cutFilter(p: Project, outW: number, outH: number, withVideo: boolean, accent: string, clean = '') {
   const mids = [...new Set(p.talk.segments.map((s) => s.mid))]; const inputs = mids.map((id) => p.talk.media.find((m) => m.id === id)!);
   const parts: string[] = []; const vl: string[] = [], al: string[] = [];
   p.talk.segments.forEach((sg, i) => {
@@ -318,7 +320,7 @@ function cutFilter(p: Project, outW: number, outH: number, withVideo: boolean, a
   else {
     parts.push(`${al.join('')}concat=n=${n}:v=0:a=1[aout0]`);
     if (withVideo) { parts.push(`[aout0]asplit[aout][aw]`, `[aw]showwaves=s=${outW}x${even(outH * 0.4)}:mode=cline:rate=${FPS}:colors=${accent.replace('#', '0x')}[wv]`, `color=c=0x141210:s=${outW}x${outH}:r=${FPS}[bg]`, `[bg][wv]overlay=0:(H-h)/2:shortest=1[vout]`); }
-    else parts.push(`[aout0]anull[aout]`);
+    else parts.push(`[aout0]${clean || 'anull'}[aout]`);
   }
   if (withVideo) parts.push('[aout]anullsink');
   return { inputs, graph: parts.join(';'), hasV };
@@ -328,9 +330,11 @@ const talkKey = (p: Project, extra: string) => crypto.createHash('sha1').update(
 
 /** The cut's audio (voice only) as a 48k wav. */
 async function cutAudio(pid: string) {
-  const p = await getProject(pid); const key = talkKey(p, 'a');
+  const p = await getProject(pid); const level = p.talk.denoise || 'auto'; const key = talkKey(p, 'a:' + level);
   const out = `talk/voice-${key}.wav`; if (fs.existsSync(projectPath(pid, out))) return out;
-  const { inputs, graph } = cutFilter(p, 2, 2, false, '#000');
+  const clean = voiceCleanFilter(level);
+  const { inputs, graph } = cutFilter(p, 2, 2, false, '#000', clean);
+  slog('talk', 'voice.clean', { project: pid, level, filter: clean ? clean.split(',').map((x) => x.split('=')[0]).join('>') : 'none' });
   await ffmpeg([...inputs.flatMap((m) => ['-i', projectPath(pid, m.file)]), '-filter_complex', graph, '-map', '[aout]', '-ac', '1', '-ar', String(SR), projectPath(pid, out)]);
   return out;
 }
@@ -339,7 +343,7 @@ async function cutAudio(pid: string) {
 export async function talkMix(pid: string, log: Log) {
   let p = await getProject(pid);
   const L = talkLayout(toComposition(p) as any);
-  const key = talkKey(p, JSON.stringify([p.talk.music, p.talk.musicWhy, p.style, L.cues.length, 'm3']));
+  const key = talkKey(p, JSON.stringify([p.talk.music, p.talk.musicWhy, p.style, L.cues.length, p.talk.denoise || 'auto', 'm4']));
   const out = `talk/mix-${key}.wav`;
   if (p.talk.mix === out && fs.existsSync(projectPath(pid, out))) return out;
   log('Cutting the voice…');

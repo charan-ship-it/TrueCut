@@ -133,6 +133,7 @@ export const Talk = z.object({
   media: z.array(Media).default([]),
   layout: z.enum(['split', 'overlay', 'bubble', 'pip', 'framed', 'clean']).default('split'),
   music: z.string().default('auto'),
+  denoise: z.enum(['off', 'auto', 'strong']).optional(), // noise suppression on the founder's voice; unset means auto
   template: z.string().optional(),
   musicWhy: z.string().optional(),
   showCaptions: z.boolean().optional(),

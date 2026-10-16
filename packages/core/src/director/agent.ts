@@ -466,7 +466,8 @@ const DECIDE_TOOL = {
   input_schema: { type: 'object', required: ['reply', 'actions'], properties: {
     reply: { type: 'string', description: 'short, warm reply in plain language (1-2 sentences). Say what you are about to do.' },
     actions: { type: 'array', items: { type: 'object', required: ['do'], properties: {
-      do: { type: 'string', enum: ['revise_scene', 'restoryboard', 'set_length', 'set_brief', 'set_direction', 'propose_angles', 'render', 'delete_scene', 'set_layout', 'apply_template', 'match_brand', 'set_captions', 'set_caption_style', 'use_skill', 'drop_skill', 'list_skills', 'recast', 'ask', 'none'] },
+      do: { type: 'string', enum: ['revise_scene', 'restoryboard', 'set_length', 'set_brief', 'set_direction', 'propose_angles', 'render', 'delete_scene', 'set_layout', 'apply_template', 'match_brand', 'set_captions', 'set_caption_style', 'use_skill', 'drop_skill', 'list_skills', 'recast', 'ask', 'set_noise', 'none'] },
+      noise: { type: 'string', enum: ['off', 'auto', 'strong'], description: 'for set_noise: how much background noise to remove from the speaker' },
       form: FORM_SPEC,
       skill: { type: 'string', description: 'for use_skill / drop_skill: the team skill name' },
       captionStyle: { type: 'string', enum: CAPTIONS, description: 'for set_caption_style: how the on-screen captions look' },
@@ -586,6 +587,7 @@ async function talkAgentPlan(pid: string, p: Project, text: string): Promise<{ r
     { name: 'set_layout', description: `Change how the speaker and graphics are arranged. ${Object.entries(LAYOUT_INFO).map(([k, v]) => `${k}: ${v}`).join(' ')}`, shape: { layout: z.enum(TALK_LAYOUTS as [string, ...string[]]) }, run: (a) => { actions.push({ do: 'set_layout', layout: a.layout }); return `Queued: ${a.layout} layout.`; } },
     { name: 'set_look', description: `Change the visual direction (colours, type, motion). Options: ${Object.entries(DIRECTIONS).map(([k, d]: any) => `${k} (${d.label})`).join(', ')}.`, shape: { direction: z.enum(Object.keys(DIRECTIONS) as [string, ...string[]]) }, run: (a) => { actions.push({ do: 'set_direction', preset: a.direction }); return `Queued: ${a.direction} look.`; } },
     { name: 'set_captions', description: 'Turn captions on or off.', shape: { on: z.boolean() }, run: (a) => { actions.push({ do: 'set_captions', captions: a.on }); return `Queued: captions ${a.on ? 'on' : 'off'}.`; } },
+    { name: 'set_noise', description: "Clean the speaker's voice: remove background noise (room tone, fans, traffic, chatter) and level the volume. Use when the person says the voice is not clear, noisy, echoey or quiet. 'strong' removes more, 'auto' is the normal setting, 'off' leaves the original. The words and the voice itself never change.", shape: { level: z.enum(['off', 'auto', 'strong']) }, run: (a) => { actions.push({ do: 'set_noise', noise: a.level }); return `Queued: noise reduction ${a.level}.`; } },
     { name: 'set_music', description: 'Change the music bed under the founder\'s voice. The voice itself is never replaced.', shape: { music: z.enum(['lofi', 'piano', 'ambient', 'cinematic', 'bright', 'none']) }, run: (a) => { actions.push({ do: 'set_music', music: a.music }); return `Queued: ${a.music} music.`; } },
     { name: 'revise_beat', description: 'Redraw one beat\'s headline and illustration with an instruction ("make it a bar chart", "shorter headline"). Facts must come from what the speaker said.', shape: { beat: z.number().int(), instruction: z.string().min(2).max(400) }, run: (a) => { beatN(a.beat); actions.push({ do: 'revise_scene', scene: a.beat, instruction: a.instruction }); return `Queued: redraw beat ${a.beat}.`; } },
     { name: 'delete_beat', description: 'Remove one beat from the talk.', shape: { beat: z.number().int() }, run: (a) => { beatN(a.beat); actions.push({ do: 'delete_scene', scene: a.beat }); return `Queued: delete beat ${a.beat}.`; } },
@@ -617,6 +619,12 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
     await post(pid, { role: 'nick', text: "In founder talks the audio is always the founder's own recorded voice. I never replace, re-voice or add a synthetic narrator to it. I can change the music bed under it (lo-fi, piano, ambient, cinematic, bright, or none), the cut, the captions or the look.", replies: ['Music: piano', 'Music: none', 'Render it'] });
     return;
   }
+  const noise = /\b(noise|noisy|denoise|background (sound|noise|chatter|hum)|hiss|echo|echoey|muffled|(voice|audio) (is |was )?(not|isn'?t) (clear|clean)|clean (up )?(the )?(voice|audio|sound)|clearer voice|can'?t hear)\b/.test(t);
+  if (noise) {
+    const cur = p.talk.denoise || 'auto';
+    const lvl = /\b(off|original|raw|no (noise|denoise)|don'?t|disable)\b/.test(t) ? 'off' : /\b(less|gentler|lighter|softer|thin|watery|robotic|tinny)\b/.test(t) ? (cur === 'strong' ? 'auto' : 'off') : 'strong';
+    await cleanVoiceTurn(pid, lvl, jobId); return;
+  }
   const mus = t.match(/^(?:\/music|music:?|use)\s+(lo-?fi|piano|ambient|cinematic|bright|none|no music)\b/);
   if (mus) {
     const g = mus[1].replace('lo-fi', 'lofi').replace('no music', 'none');
@@ -639,7 +647,7 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
   });
   if (!plan) { await post(pid, { role: 'nick', text: 'Without an AI key I can change the length, layout, look and captions, or render. Add an Anthropic API key in Settings → API keys for free-form edits.', replies: ['Render it', 'Switch to overlay layout', 'Make it shorter'] }); return; }
   if (plan.reply) await post(pid, { role: 'nick', text: plan.reply });
-  let recut = null as { brief: any; note: string } | null; let changed = false; let relayout = false; let ask = null as ReturnType<typeof normalizeForm>;
+  let recut = null as { brief: any; note: string } | null; let changed = false; let relayout = false; let noiseMsg = ''; let ask = null as ReturnType<typeof normalizeForm>;
   for (const ac of plan.actions || []) {
     if (ac.do === 'ask' && !ask) ask = normalizeForm(ac.form);
     if (ac.do === 'set_length' && ac.length) recut = { brief: { ...(recut?.brief || {}), length: ac.length }, note: recut?.note || '' };
@@ -649,6 +657,7 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
     if (ac.do === 'match_brand') { await matchBrand(pid, ac.instruction || '', jobId); relayout = false; changed = true; }
     if (ac.do === 'set_layout' && ac.layout) { await updateProject(pid, (pp) => { pp.talk.layout = ac.layout; }); relayout = true; }
     if (ac.do === 'set_captions') { await updateProject(pid, (pp) => { pp.talk.showCaptions = !!ac.captions; }); changed = true; }
+    if (ac.do === 'set_noise' && ac.noise) { await updateProject(pid, (pp) => { pp.talk.denoise = ac.noise; pp.talk.mix = undefined; }); relayout = true; noiseMsg = ac.noise; }
     if (ac.do === 'set_music' && ac.music) { await updateProject(pid, (pp) => { pp.talk.music = ac.music; pp.talk.mix = undefined; }); relayout = true; }
     if (ac.do === 'list_skills' || ac.do === 'use_skill' || ac.do === 'drop_skill') await skillAction(pid, ac.do, ac.skill);
     if (ac.do === 'set_brief' && ac.brief) { await updateProject(pid, (pp) => { Object.assign(pp.intake, ac.brief); }); }
@@ -658,8 +667,18 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
   }
   if (ask) { await post(pid, { role: 'nick', text: '', cards: [{ ...ask }] }); return; }
   if (recut) return cutTalk(pid, recut.brief, jobId, recut.note);
+  if (noiseMsg) { await cleanVoiceTurn(pid, noiseMsg as any, jobId); return; }
   if (relayout) { const pr = await progress(pid, jobId, 'Re-framing the speaker'); await pr.step(`Switching to the ${(await getProject(pid)).talk.layout} layout`); await buildProxies(pid, sublog(pr)); await pr.finish('Layout switched'); changed = true; }
   if (changed) await post(pid, { role: 'nick', text: 'Updated. The monitor has the change.', cards: [{ kind: 'edit' }], replies: ['Render it', 'Try another look'] });
+}
+
+/** Rebuild the speaker's audio with a different noise-reduction level and refresh the preview. */
+async function cleanVoiceTurn(pid: string, level: 'off' | 'auto' | 'strong', jobId: string) {
+  await updateProject(pid, (pp) => { pp.talk.denoise = level; pp.talk.mix = undefined; });
+  const pr = await progress(pid, jobId, level === 'off' ? 'Using the original audio' : 'Cleaning the voice');
+  await pr.step(level === 'off' ? 'Noise reduction off' : level === 'strong' ? 'Removing background noise firmly, then levelling the volume' : 'Removing background noise, then levelling the volume');
+  await buildProxiesFresh(pid, sublog(pr)); await pr.finish(level === 'off' ? 'Original audio' : 'Voice cleaned');
+  await post(pid, { role: 'nick', text: level === 'off' ? "Noise reduction is off, so you're hearing the original recording." : level === 'strong' ? "Cleaned the voice firmly: background noise is removed and the volume is levelled. The words are untouched. If it sounds thin or watery, say \"less noise reduction\"." : "Cleaned the voice: background noise is reduced and the volume is levelled. If it's still noisy, say \"more noise reduction\".", cards: [{ kind: 'edit' }], replies: level === 'strong' ? ['Less noise reduction', 'Render it'] : ['More noise reduction', 'Render it'] });
 }
 
 async function recast(pid: string, instruction: string, jobId: string) {

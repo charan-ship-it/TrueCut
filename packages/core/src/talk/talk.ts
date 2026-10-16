@@ -429,12 +429,12 @@ async function renderTalkNow(pid: string, formats: FormatId[], log: Log) {
         await page.goto(`${srv.base}/engine/player.html?render=1&format=${fmt}&assetBase=/p/`);
         await page.waitForFunction(() => (window as any).ready, null, { timeout: 60000 }); await page.evaluate(() => (window as any).ready);
         const outFile = path.join(tmp, `${fmt}-${String(w).padStart(2, '0')}.mp4`);
-        const ch = spawn(ffmpegPath(), ['-hide_banner', '-loglevel', 'error', '-y',
+        const ch = spawn(ffmpegPath(), ['-hide_banner', '-loglevel', 'error', '-y', '-filter_threads', '2', '-filter_complex_threads', '2',
           '-f', 'lavfi', '-i', `color=c=black:s=${dims.w}x${dims.h}:r=${FPS}`,
           '-ss', (a / FPS).toFixed(4), '-i', projectPath(pid, cut),
           '-f', 'image2pipe', '-c:v', 'png', '-framerate', String(FPS), '-i', '-',
           '-filter_complex', `[1:v]setpts=PTS-STARTPTS[sp];[0:v][sp]overlay=${box.x}:${box.y}:eof_action=pass[b];[b][2:v]overlay=0:0:shortest=1,format=yuv420p[v]`,
-          '-map', '[v]', '-frames:v', String(b - a), '-c:v', 'libx264', '-preset', 'medium', '-crf', '17', '-r', String(FPS), outFile], { stdio: ['pipe', 'ignore', 'pipe'] });
+          '-map', '[v]', '-frames:v', String(b - a), '-c:v', 'libx264', '-threads', '4', '-preset', 'medium', '-crf', '17', '-r', String(FPS), outFile], { stdio: ['pipe', 'ignore', 'pipe'] });
         kids.push(ch);
         let err = ''; ch.stderr.on('data', (d) => (err = (err + d).slice(-2000)));
         ch.stdin.on('error', () => {}); // a write to an ffmpeg that already died: the close handler reports why

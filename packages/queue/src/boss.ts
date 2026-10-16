@@ -3,7 +3,7 @@
 // worker can give renders their own concurrency.
 import { PgBoss } from 'pg-boss';
 import { env } from '@truecut/config';
-import { databaseUrl, failStaleJobs, type Job } from '@truecut/db';
+import { databaseUrl, failStaleJobs, updateProject, type Job } from '@truecut/db';
 import { handlerKinds, isHeavy, runJob, setSender } from './jobs';
 
 const g = globalThis as any;
@@ -44,9 +44,14 @@ export async function startWorker(opts: { concurrency?: number; renderSlots?: nu
   setSender(async (job: Job) => { await ensureQueue(b, job.kind); await b.send(queueName(job.kind), { jobId: job.id }); });
   const light = opts.concurrency ?? Math.max(1, Number(env('TRUECUT_WORKER_CONCURRENCY', '3')));
   const heavy = opts.renderSlots ?? Math.max(1, Number(env('TRUECUT_RENDER_SLOTS', '1')));
-  const reaped = await failStaleJobs();
-  if (reaped) console.log(`[worker] closed ${reaped} job(s) left running by a previous worker`);
-  const reaper = setInterval(() => { failStaleJobs().catch((e) => console.error('[worker] reaper', e?.message)); }, 60_000);
+  const reap = async () => {
+    const rows = await failStaleJobs();
+    if (rows.length) console.log(`[worker] closed ${rows.length} job(s) left running by a previous worker: ${rows.map((r) => `${r.id}@${r.projectId}`).join(', ')}`);
+    await closeOrphanedCards(rows);
+    return rows.length;
+  };
+  await reap();
+  const reaper = setInterval(() => { reap().catch((e) => console.error('[worker] reaper', e?.message)); }, 60_000);
   for (const kind of handlerKinds()) {
     await ensureQueue(b, kind);
     await b.work<{ jobId: string }>(queueName(kind), { localConcurrency: isHeavy(kind) ? heavy : light, batchSize: 1, pollingIntervalSeconds: 1 }, async (jobs: any) => {
@@ -57,4 +62,24 @@ export async function startWorker(opts: { concurrency?: number; renderSlots?: nu
   return {
     async stop(graceMs = 300_000) { clearInterval(reaper); await b.stop({ graceful: true, timeout: graceMs }); g.__tcBoss = undefined; g.__tcBossStarting = undefined; },
   };
+}
+
+/** A progress card whose job was reaped would spin forever in the chat. Close it with an error and tell the person what to do. */
+export async function closeOrphanedCards(rows: { id: string; projectId: string | null }[]) {
+  for (const r of rows) {
+    if (!r.projectId) continue;
+    try {
+      await updateProject(r.projectId, (p) => {
+        let hit = false;
+        for (const m of p.chat as any[]) {
+          if (m.jobId !== r.id) continue;
+          for (const c of m.cards || []) if (c.kind === 'progress' && !c.done) {
+            const last = c.steps?.[c.steps.length - 1]; if (last) { last.state = 'err'; last.detail = 'Interrupted: the worker restarted'; }
+            c.done = true; c.title = 'Interrupted'; hit = true;
+          }
+        }
+        if (hit) p.chat.push({ id: 'm' + Math.random().toString(36).slice(2, 10), role: 'nick', text: 'That was interrupted because the server restarted while it was working. Nothing was lost. Say it again and I will pick it back up.', cards: [], replies: ['Render it'], attachments: [], at: new Date().toISOString() } as any);
+      });
+    } catch (e: any) { console.error('[worker] could not close a stale card', r.id, e?.message); }
+  }
 }

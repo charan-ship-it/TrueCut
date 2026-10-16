@@ -38,7 +38,7 @@ describe.skipIf(!dbReady)('postgres store', () => {
     // the worker died: heartbeat far in the past
     await db().update(jobs).set({ heartbeatAt: new Date(Date.now() - 10 * 60_000) }).where(eq(jobs.id, j.id));
     expect(await isBusy(p.id)).toBe(false);
-    expect(await failStaleJobs()).toBeGreaterThanOrEqual(1);
+    expect((await failStaleJobs()).length).toBeGreaterThanOrEqual(1);
     expect((await getJob(j.id))!.status).toBe('error');
     const k = await createJob('render', p.id);
     await markRunning(k.id); await finishJob(k.id, { result: { ok: 1 } });

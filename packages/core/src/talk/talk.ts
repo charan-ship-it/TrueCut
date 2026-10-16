@@ -359,11 +359,15 @@ export async function talkMix(pid: string, log: Log) {
   return out;
 }
 
+/** What a preview proxy depends on. The proxy carries the mixed audio, so the music and noise level are part of its name: reusing one name
+ *  after the audio changed made the browser keep playing the old file (the presigned redirect is cached for minutes). */
+const proxyExtra = (p: Project, fmt: string, lay: string, quality: string) => quality === 'proxy' ? [fmt, lay, quality, p.talk.music, p.talk.musicWhy || '', p.talk.denoise || 'auto'].join('|') : [fmt, lay, quality].join('|');
+
 /** Cut + crop the speaker to exactly the speaker box of a format/layout. Proxy = half size with the mix, for preview. */
 export async function buildCut(pid: string, fmt: FormatId, quality: 'proxy' | 'full', log: Log) {
   const p = await getProject(pid); const lay = p.talk.layout || 'split';
   const box = speakerBox(fmt, lay); const q = quality === 'proxy' ? 0.5 : 1; const W = even(box.w * q), H = even(box.h * q);
-  const key = talkKey(p, [fmt, lay, quality].join('|'));
+  const key = talkKey(p, proxyExtra(p, fmt, lay, quality));
   const out = `talk/${quality}-${fmt}-${lay}-${key}.mp4`;
   if (fs.existsSync(projectPath(pid, out))) return out;
   const S = resolveStyle(p.style || {}, p.intake.accent);
@@ -375,14 +379,18 @@ export async function buildCut(pid: string, fmt: FormatId, quality: 'proxy' | 'f
     args.push('-i', projectPath(pid, mix), '-filter_complex', graph, '-map', '[vout]', '-map', `${inputs.length}:a`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '30', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-shortest', '-movflags', '+faststart', projectPath(pid, out));
   } else args.push('-filter_complex', graph, '-map', '[vout]', '-an', '-c:v', 'libx264', '-preset', 'medium', '-crf', '16', '-pix_fmt', 'yuv420p', projectPath(pid, out));
   await ffmpeg(args);
-  if (quality === 'proxy') await updateProject(pid, (pp) => { pp.talk.proxies = { ...pp.talk.proxies, [`${fmt}:${lay}`]: out }; });
+  if (quality === 'proxy') {
+    await updateProject(pid, (pp) => { pp.talk.proxies = { ...pp.talk.proxies, [`${fmt}:${lay}`]: out }; });
+    // proxies are named by their audio state now, so older ones for this format and layout are dead weight
+    try { const dir = projectPath(pid, 'talk'); for (const f of fs.readdirSync(dir)) if (f.startsWith(`proxy-${fmt}-${lay}-`) && f.endsWith('.mp4') && `talk/${f}` !== out) fs.rmSync(path.join(dir, f), { force: true }); } catch {}
+  }
   return out;
 }
 
 /** Rebuild preview proxies even if the cut is unchanged (e.g. the music bed changed). */
 export async function buildProxiesFresh(pid: string, log: Log) {
   const p = await getProject(pid);
-  for (const f of p.intake.formats) { const lay = p.talk.layout || 'split'; const key = talkKey(p, [f, lay, 'proxy'].join('|')); const out = projectPath(pid, `talk/proxy-${f}-${lay}-${key}.mp4`); try { fs.rmSync(out, { force: true }); } catch {} await buildCut(pid, f, 'proxy', log); }
+  for (const f of p.intake.formats) { const lay = p.talk.layout || 'split'; const key = talkKey(p, proxyExtra(p, f, lay, 'proxy')); const out = projectPath(pid, `talk/proxy-${f}-${lay}-${key}.mp4`); try { fs.rmSync(out, { force: true }); } catch {} await buildCut(pid, f, 'proxy', log); }
 }
 
 export async function buildProxies(pid: string, log: Log) {
@@ -406,35 +414,67 @@ async function renderTalkNow(pid: string, formats: FormatId[], log: Log) {
   const outs: RenderOut[] = []; const name = slug(p.talk.speaker.name || p.intake.productName || p.name);
   const tmp = projectPath(pid, `renders/.tmp-${newId().slice(0, 6)}`); fs.mkdirSync(tmp, { recursive: true });
   const srv = await staticServer(pid); const browser = await launchBrowser();
-  try {
-    for (const [fi, fmt] of formats.entries()) {
-      const cut = await buildCut(pid, fmt, 'full', log);
-      const dims = FORMATS[fmt]; const box = speakerBox(fmt, p.talk.layout);
-      const chunk = Math.ceil(total / workers); let done = 0; const base = (fi / formats.length) * 100;
-      log(`Rendering ${fmt.replace('x', ':')} on ${workers} workers…`, base + 5);
-      await Promise.all(Array.from({ length: workers }, async (_, w) => {
+  let done = 0;
+  const renderChunks = async (fmt: FormatId, nWorkers: number, cut: string, dims: { w: number; h: number }, box: { x: number; y: number }, base: number) => {
+    const chunk = Math.ceil(total / nWorkers); done = 0;
+    let abort: Error | null = null; const kids: ReturnType<typeof spawn>[] = []; const pages: any[] = [];
+    const fail = (e: any) => { if (!abort) abort = e instanceof Error ? e : new Error(String(e)); for (const k of kids) try { k.kill('SIGKILL'); } catch {} };
+    await Promise.all(Array.from({ length: nWorkers }, async (_, w) => {
+      try {
         const a = w * chunk, b = Math.min(total, a + chunk); if (a >= b) return;
-        const page = await browser.newPage({ viewport: { width: dims.w, height: dims.h } });
+        const page = await browser.newPage({ viewport: { width: dims.w, height: dims.h } }); pages.push(page);
         page.on('pageerror', (e) => console.error('[talk]', e.message));
+        page.on('crash', () => fail(new Error('the render page crashed (out of memory?)')));
         await page.addInitScript((c) => { (window as any).__COMP__ = c; }, comp);
         await page.goto(`${srv.base}/engine/player.html?render=1&format=${fmt}&assetBase=/p/`);
         await page.waitForFunction(() => (window as any).ready, null, { timeout: 60000 }); await page.evaluate(() => (window as any).ready);
+        const outFile = path.join(tmp, `${fmt}-${String(w).padStart(2, '0')}.mp4`);
         const ch = spawn(ffmpegPath(), ['-hide_banner', '-loglevel', 'error', '-y',
           '-f', 'lavfi', '-i', `color=c=black:s=${dims.w}x${dims.h}:r=${FPS}`,
           '-ss', (a / FPS).toFixed(4), '-i', projectPath(pid, cut),
           '-f', 'image2pipe', '-c:v', 'png', '-framerate', String(FPS), '-i', '-',
           '-filter_complex', `[1:v]setpts=PTS-STARTPTS[sp];[0:v][sp]overlay=${box.x}:${box.y}:eof_action=pass[b];[b][2:v]overlay=0:0:shortest=1,format=yuv420p[v]`,
-          '-map', '[v]', '-frames:v', String(b - a), '-c:v', 'libx264', '-preset', 'medium', '-crf', '17', '-r', String(FPS), path.join(tmp, `${fmt}-${String(w).padStart(2, '0')}.mp4`)], { stdio: ['pipe', 'ignore', 'pipe'] });
-        let err = ''; ch.stderr.on('data', (d) => (err += d));
-        const closed = new Promise<void>((res, rej) => ch.on('close', (c) => (c === 0 ? res() : rej(new Error('compositor: ' + err.slice(-400))))));
+          '-map', '[v]', '-frames:v', String(b - a), '-c:v', 'libx264', '-preset', 'medium', '-crf', '17', '-r', String(FPS), outFile], { stdio: ['pipe', 'ignore', 'pipe'] });
+        kids.push(ch);
+        let err = ''; ch.stderr.on('data', (d) => (err = (err + d).slice(-2000)));
+        ch.stdin.on('error', () => {}); // a write to an ffmpeg that already died: the close handler reports why
+        const closed = new Promise<void>((res, rej) => ch.on('close', (c) => (c === 0 ? res() : rej(new Error(`compositor ${w} (frames ${a}-${b}, exit ${c}): ${err.slice(-900)}`)))));
+        const gone = closed.then(() => {}, () => {});
+        closed.catch((e) => fail(e)); // handled here so a dying ffmpeg can never become an unhandled rejection that takes the whole worker down
         for (let f = a; f < b; f++) {
+          if (abort) throw abort;
           await page.evaluate((t) => (window as any).render(t), f / FPS);
           const png = await page.screenshot({ type: 'png', omitBackground: true });
-          if (!ch.stdin.write(png)) await new Promise((r) => ch.stdin.once('drain', r));
+          if (abort) throw abort;
+          if (!ch.stdin.write(png)) await Promise.race([new Promise((r) => ch.stdin.once('drain', r)), gone]); // a dead ffmpeg never drains: wake up on its exit
           done++; if (done % 15 === 0) log(`${fmt}: frame ${done}/${total}`, base + 5 + (done / total) * (85 / formats.length));
         }
-        ch.stdin.end(); await closed; await page.close();
-      }));
+        ch.stdin.end(); await closed;
+      } catch (e) { fail(e); }
+    }));
+    for (const pg of pages) await pg.close().catch(() => {});
+    if (abort) throw abort;
+  };
+  try {
+    for (const [fi, fmt] of formats.entries()) {
+      const cut = await buildCut(pid, fmt, 'full', log);
+      const dims = FORMATS[fmt]; const box = speakerBox(fmt, p.talk.layout);
+      const base = (fi / formats.length) * 100;
+      // Chromium pages + ffmpeg encoders are heavy. If any worker fails (memory, a crashed page, an encoder that will not open),
+      // stop all of them, clean up and try again once with half as many, instead of crashing the whole worker process.
+      let attempt = 0; let n = workers;
+      log(`Rendering ${fmt.replace('x', ':')} on ${n} workers…`, base + 5);
+      for (;;) {
+        attempt++;
+        slog('render', 'format.start', { project: pid, fmt, workers: n, attempt, frames: total, freeMB: Math.round(os.freemem() / 1048576), rssMB: Math.round(process.memoryUsage().rss / 1048576), cpus: os.cpus().length });
+        try { await renderChunks(fmt, n, cut, dims, box, base); break; }
+        catch (e: any) {
+          slog('render', 'format.failed', { project: pid, fmt, workers: n, attempt, error: e?.message || String(e), freeMB: Math.round(os.freemem() / 1048576) });
+          for (const f of fs.readdirSync(tmp)) if (f.startsWith(fmt + '-')) fs.rmSync(path.join(tmp, f), { force: true });
+          if (attempt >= 2 || n <= 1) throw new Error(`Rendering ${fmt.replace('x', ':')} failed: ${(e?.message || String(e)).slice(0, 300)}`);
+          n = Math.max(1, Math.floor(n / 2)); log(`A render worker failed; trying again with ${n} worker${n > 1 ? 's' : ''}…`, base + 5);
+        }
+      }
       const list = path.join(tmp, `${fmt}.txt`);
       fs.writeFileSync(list, fs.readdirSync(tmp).filter((f) => f.startsWith(fmt + '-') && f.endsWith('.mp4')).sort().map((f) => `file '${path.join(tmp, f)}'`).join('\n'));
       const silent = path.join(tmp, `${fmt}-video.mp4`);

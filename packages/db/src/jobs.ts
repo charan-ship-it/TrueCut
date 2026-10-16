@@ -68,12 +68,12 @@ export async function isBusy(projectId: string, kind = 'nick'): Promise<boolean>
 }
 
 /** Jobs left "running" by a worker that died get closed so the UI stops waiting on them. */
-export async function failStaleJobs(): Promise<number> {
+export async function failStaleJobs(): Promise<{ id: string; projectId: string | null }[]> {
   const rows = await db().update(jobs).set({ status: 'error', error: 'The worker stopped before this finished. Please try again.', message: 'Interrupted', endedAt: new Date() })
-    .where(and(eq(jobs.status, 'running'), or(isNull(jobs.heartbeatAt), lt(jobs.heartbeatAt, new Date(Date.now() - STALE_MS))))).returning({ id: jobs.id });
+    .where(and(eq(jobs.status, 'running'), or(isNull(jobs.heartbeatAt), lt(jobs.heartbeatAt, new Date(Date.now() - STALE_MS))))).returning({ id: jobs.id, projectId: jobs.projectId });
   const lost = await db().update(jobs).set({ status: 'error', error: 'This job was never picked up. Please try again.', message: 'Not started', endedAt: new Date() })
-    .where(and(eq(jobs.status, 'queued'), lt(jobs.createdAt, new Date(Date.now() - QUEUED_MAX_MS)))).returning({ id: jobs.id });
-  return rows.length + lost.length;
+    .where(and(eq(jobs.status, 'queued'), lt(jobs.createdAt, new Date(Date.now() - QUEUED_MAX_MS)))).returning({ id: jobs.id, projectId: jobs.projectId });
+  return [...rows, ...lost];
 }
 
 export async function activeJobs(kinds?: string[]) {

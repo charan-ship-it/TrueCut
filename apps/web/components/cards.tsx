@@ -220,9 +220,15 @@ function Directions({ ctx, send, busy, setPreview, chat, msgId }: P) {
   if (!active) return null;
   return (
     <div className="ccard">
-      <div className="hd"><span className="mono">The look</span><span className="grow" /><span className="xs dim">Hover to preview on the monitor · click to switch</span></div>
+      <div className="hd"><span className="mono">The look</span><span className="grow" /><span className="xs dim">Hover to preview on the monitor · click to switch · or ask Nick for any look</span></div>
       <div className="bd" style={{ paddingBottom: 6 }}>
         <div className="dirs" onMouseLeave={() => setPreview(null)}>
+          <button className={`dir brand ${ctx.p.style?.brandLook ? 'on' : ''}`} disabled={busy} onClick={() => { if (!ctx.p.style?.brandLook) send({ type: 'brand' }); }} title="Nick reads your site, logo and screenshots and designs in your brand's own visual language">
+            <div className="bsw" style={{ background: ctx.p.brandLanguage?.palette?.bg || 'var(--bg2)', color: ctx.p.brandLanguage?.palette?.ink || 'var(--text)' }}>
+              {ctx.p.brandLanguage?.palette ? <><i style={{ background: ctx.p.brandLanguage.palette.accent }} /><i style={{ background: ctx.p.brandLanguage.palette.accent2 || ctx.p.brandLanguage.palette.ink }} /><i style={{ background: ctx.p.brandLanguage.palette.card || ctx.p.brandLanguage.palette.bg }} /></> : <span>✦</span>}
+            </div>
+            <div className="nm"><span>Our brand</span><span className="tc xs">{ctx.p.style?.brandLook ? 'active' : 'learn it'}</span></div>
+          </button>
           {Object.entries(DIRECTIONS).map(([k, d]: any) => (
             <button key={k} className={`dir ${cur === k ? 'on' : ''}`} disabled={busy} onMouseEnter={() => setPreview(k === cur ? null : k)} onClick={() => { setPreview(null); if (k !== cur) send({ type: 'direction', preset: k }); }} title={d.vibe}>
               <Swatch preset={k} word={ctx.p.intake.productName?.split(' ')[0] || d.label} big={24} />

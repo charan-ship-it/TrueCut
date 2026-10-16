@@ -250,7 +250,7 @@ video{width:100%;border-radius:var(--rs);background:#000;display:block}
 .dirs{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 8px;scrollbar-width:thin;scroll-snap-type:x mandatory}
 .dir{flex:none;width:132px;scroll-snap-align:start;border-radius:12px;overflow:hidden;border:1px solid var(--line);cursor:pointer;transition:all .22s var(--ease);background:none;padding:0;text-align:left;color:inherit;font:inherit}
 .dir:hover{transform:translateY(-3px)}
-.dir.on{border-color:var(--a);box-shadow:0 0 0 3px rgba(var(--ar),.25)}
+.dir.brand .bsw{height:62px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:22px;border-bottom:1px solid var(--line)}.dir.brand .bsw i{width:20px;height:20px;border-radius:50%;display:block;border:1px solid rgba(128,128,128,.3)}.dir.on{border-color:var(--a);box-shadow:0 0 0 3px rgba(var(--ar),.25)}
 .dir .sw{aspect-ratio:4/5;position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;padding:10px}
 .dir .nm{padding:7px 9px;background:var(--panel2);font-size:12px;font-weight:500;display:flex;justify-content:space-between;align-items:center}
 .strip{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 6px;scrollbar-width:thin}

@@ -35,6 +35,7 @@ export type Action =
   | { type: 'answers'; answers: Record<string, string> }
   | { type: 'angle'; id: string }
   | { type: 'direction'; preset: string }
+  | { type: 'brand'; instruction?: string }
   | { type: 'storyboard' }
   | { type: 'render'; formats?: FormatId[] }
   | { type: 'reply'; text: string }
@@ -101,6 +102,7 @@ function userEcho(p: Project, a: Action): string {
     case 'answers': return 'Here are my answers.';
     case 'angle': return `Let's go with “${p.angles.find((x) => x.id === a.id)?.title || a.id}”.`;
     case 'direction': return `Switch the look to ${DIRECTIONS[a.preset]?.label || a.preset}.`;
+    case 'brand': return a.instruction ? `Match our brand: ${a.instruction}` : 'Match our brand.';
     case 'storyboard': return 'Write the storyboard.';
     case 'talkbrief': return `Cut it${a.brief?.length ? ` to about ${a.brief.length}s` : ''}${a.brief?.layout ? `, ${a.brief.layout} layout` : ''}.`;
     case 'render': return `Render it${a.formats?.length ? ` (${a.formats.map((f) => f.replace('x', ':')).join(', ')})` : ''}.`;
@@ -112,6 +114,7 @@ async function turn(pid: string, a: Action, jobId: string) {
   if (a.type === 'answers') return afterAnswers(pid, a.answers, jobId);
   if (a.type === 'angle') return pickAngle(pid, a.id, jobId);
   if (a.type === 'direction') return setDirection(pid, a.preset, jobId, true);
+  if (a.type === 'brand') return matchBrand(pid, a.instruction || '', jobId);
   if (a.type === 'storyboard') return writeStory(pid, jobId);
   if (a.type === 'render') return render(pid, a.formats, jobId);
   if (a.type === 'talkbrief') return cutTalk(pid, a.brief || {}, jobId);

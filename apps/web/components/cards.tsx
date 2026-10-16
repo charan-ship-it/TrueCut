@@ -323,6 +323,13 @@ function Transcript({ ctx }: P) {
   );
 }
 
+// Length choices for a founder talk can't exceed the recording: a 1:10 clip offers up to "Whole clip (1:10)", never 90s.
+function lengthOpts(dur?: number): [number, string][] {
+  const d = Math.round(dur || 0); const presets = [15, 30, 45, 60, 90];
+  if (d < 10) return presets.map((n) => [n, `${n}s`] as [number, string]);
+  const fit = presets.filter((n) => n < d * 0.9).map((n) => [n, `${n}s`] as [number, string]);
+  return [...fit, [d, `Whole clip (${Math.floor(d / 60)}:${String(d % 60).padStart(2, '0')})`]];
+}
 // ─── founder talk: brief ───
 function TalkBrief({ ctx, send, busy, chat, msgId }: P) {
   const p = ctx.p; const active = isLatestOfKind(chat, msgId, 'talkbrief') && !p.talk.beats.length;
@@ -339,7 +346,7 @@ function TalkBrief({ ctx, send, busy, chat, msgId }: P) {
           <label className="f">Who&apos;s speaking<input value={b.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Alex Rivera" /></label>
           <label className="f">Their role<input value={b.role} onChange={(e) => set('role', e.target.value)} placeholder="e.g. Founder, AI Xccelerate" /></label>
         </div>
-        <label className="f">Length<Seg k="length" opts={[[15, '15s'], [30, '30s'], [45, '45s'], [60, '60s'], [90, '90s']]} /></label>
+        <label className="f">Length<Seg k="length" opts={lengthOpts(m?.duration)} /></label>
         <label className="f">Template <span className="xs dim">(optional: or leave it off and let Nick edit freely)</span><div className="row wrap" style={{ gap: 6 }}>
           <button onClick={() => setB((x: any) => ({ ...x, template: undefined }))} className="btn sm" style={{ borderColor: !b.template ? 'var(--a)' : undefined, background: !b.template ? 'var(--at)' : undefined }}>None</button>
           {TALK_TEMPLATES.map((t) => (

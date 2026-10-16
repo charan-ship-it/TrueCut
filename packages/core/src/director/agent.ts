@@ -249,6 +249,12 @@ async function cutTalk(pid: string, brief: Record<string, any>, jobId: string, i
     instruction = instruction || tpl.note;
     await updateProject(pid, (pp) => { pp.talk.template = tpl.id; pp.style = { ...(pp.style || {}), preset: tpl.direction, captions: tpl.captions }; pp.audioHash = undefined; });
   }
+  // a cut can't be longer than the recording it is cut from: asking for 90s of a 70s clip means "keep it all"
+  const src = Math.round((await getProject(pid)).talk.media.reduce((a, m) => a + (m.duration || 0), 0));
+  if (brief.length && src >= 10 && Number(brief.length) > src) {
+    await post(pid, { role: 'nick', text: `The recording is only **${fmtMin(src)}**, so I can't make it longer than that. I'll keep the strongest ${src} seconds or less instead of padding.` });
+    brief = { ...brief, length: src };
+  }
   await updateProject(pid, (p) => {
     if (brief.length) p.intake.length = Math.max(10, Math.min(180, Number(brief.length) || p.intake.length));
     if (TALK_LAYOUTS.includes(brief.layout)) p.talk.layout = brief.layout;

@@ -147,7 +147,7 @@ export async function planTalk(pid: string, log: Log, instruction = '') {
   const p = await getProject(pid);
   const media = p.talk.media[0]; if (!media) throw new Error('No recording in this project yet.');
   const words = loadWords(pid, media); if (!words.length) throw new Error('The recording has no transcript.');
-  const target = p.intake.length || 45;
+  const target = Math.min(p.intake.length || 45, Math.max(10, Math.round(media.duration))); // never ask for more than the recording has
   const sents = sentences(words);
   if (media.hasVideo && !media.face) await detectFace(pid, media).catch(() => {});
   let out: any;

@@ -28,6 +28,7 @@ import { runAgent, sdkEnabled, z, type AgentTool } from '../agent/sdk';
 import { useBuiltins, chooseSkills, skillBlock, projectSkills, toggleSkill } from '../skills/skills';
 import type { Angle, ChatMsg, FormatId, Project } from '@truecut/shared/types';
 
+import { normalizeForm, FORM_SPEC, ASK_GUIDE } from './form';
 import { detectSources, type Attachment } from '@truecut/shared/detect';
 export { detectSources, type Attachment };
 export type Action =
@@ -449,7 +450,8 @@ const DECIDE_TOOL = {
   input_schema: { type: 'object', required: ['reply', 'actions'], properties: {
     reply: { type: 'string', description: 'short, warm reply in plain language (1-2 sentences). Say what you are about to do.' },
     actions: { type: 'array', items: { type: 'object', required: ['do'], properties: {
-      do: { type: 'string', enum: ['revise_scene', 'restoryboard', 'set_length', 'set_brief', 'set_direction', 'propose_angles', 'render', 'delete_scene', 'set_layout', 'apply_template', 'match_brand', 'set_captions', 'set_caption_style', 'use_skill', 'drop_skill', 'list_skills', 'recast', 'none'] },
+      do: { type: 'string', enum: ['revise_scene', 'restoryboard', 'set_length', 'set_brief', 'set_direction', 'propose_angles', 'render', 'delete_scene', 'set_layout', 'apply_template', 'match_brand', 'set_captions', 'set_caption_style', 'use_skill', 'drop_skill', 'list_skills', 'recast', 'ask', 'none'] },
+      form: FORM_SPEC,
       skill: { type: 'string', description: 'for use_skill / drop_skill: the team skill name' },
       captionStyle: { type: 'string', enum: CAPTIONS, description: 'for set_caption_style: how the on-screen captions look' },
       layout: { type: 'string', enum: TALK_LAYOUTS }, template: { type: 'string', enum: TALK_TEMPLATES.map((x) => x.id) }, captions: { type: 'boolean' },
@@ -483,7 +485,7 @@ async function interpret(pid: string, text: string, jobId: string) {
     const skills = await skillBlock(pid, 'chat', p).catch(() => '');
     plan = await callTool<any>({
       model: config.model, maxTokens: 1500,
-      system: `You are Nick, the director inside TrueCut, a tool that turns real product sources into motion-graphics video ads. Map the user's message to actions. Never invent facts. If they ask for something general ("punchier", "more energy"), revise the relevant scenes or restoryboard with that instruction. Anything about the VOICE(S), narrator, accent, a second voice or the music/score → recast with their words as the instruction. Directions: ${Object.entries(DIRECTIONS).map(([k, d]: any) => `${k} (${d.label})`).join(', ')}. Caption styles (set_caption_style): ${Object.entries(CAPTION_STYLES).map(([k, d]) => `${k}: ${d}`).join('; ')}.${skillsInfo}${skills}`,
+      system: `You are Nick, the director inside TrueCut, a tool that turns real product sources into motion-graphics video ads. Map the user's message to actions. Never invent facts. If they ask for something general ("punchier", "more energy"), revise the relevant scenes or restoryboard with that instruction. Anything about the VOICE(S), narrator, accent, a second voice or the music/score → recast with their words as the instruction. Directions: ${Object.entries(DIRECTIONS).map(([k, d]: any) => `${k} (${d.label})`).join(', ')}. Caption styles (set_caption_style): ${Object.entries(CAPTION_STYLES).map(([k, d]) => `${k}: ${d}`).join('; ')}.${ASK_GUIDE}${skillsInfo}${skills}`,
       tool: DECIDE_TOOL,
       content: [{ type: 'text', text: `Stage: ${p.stage}. Direction: ${p.style?.preset}. Length target: ${p.intake.length}s.\nStoryboard:\n${p.scenes.map((s, i) => `${i + 1}. [${s.type}] ${s.vo?.text || ''}`).join('\n') || '(none yet)'}\n\n${recentChat(p)}User: ${text}` }],
     });
@@ -493,8 +495,9 @@ async function interpret(pid: string, text: string, jobId: string) {
     return;
   }
   if (plan.reply) await post(pid, { role: 'nick', text: plan.reply });
-  let restory = false; let changed = false;
+  let restory = false; let changed = false; let ask = null as ReturnType<typeof normalizeForm>;
   for (const ac of plan.actions || []) {
+    if (ac.do === 'ask' && !ask) ask = normalizeForm(ac.form);
     if (ac.do === 'set_length' && ac.length) { await updateProject(pid, (pp) => { pp.intake.length = Math.max(10, Math.min(60, Math.round(ac.length))); }); restory = true; }
     if (ac.do === 'set_brief' && ac.brief) { await updateProject(pid, (pp) => { Object.assign(pp.intake, ac.brief); }); changed = true; }
     if (ac.do === 'set_direction' && ac.preset) { await setDirection(pid, ac.preset, jobId, true); }
@@ -511,6 +514,7 @@ async function interpret(pid: string, text: string, jobId: string) {
     if (ac.do === 'recast') { await recast(pid, ac.instruction || text, jobId); }
     if (ac.do === 'render') { await render(pid, ac.formats, jobId); return; }
   }
+  if (ask) { await post(pid, { role: 'nick', text: '', cards: [{ ...ask }] }); return; }
   if (restory) return writeStory(pid, jobId);
   if (changed) await post(pid, { role: 'nick', text: 'Updated. The preview has the change.', cards: [{ kind: 'storyboard' }], replies: ['Render it', 'Try another look'] });
 }
@@ -573,10 +577,11 @@ async function talkAgentPlan(pid: string, p: Project, text: string): Promise<{ r
     { name: 'list_skills', description: 'The team skills in use on this project and the ones available.', shape: {}, run: () => { actions.push({ do: 'list_skills' }); return 'Queued: list the skills in chat.'; } },
     { name: 'use_skill', description: 'Follow a team skill (a saved format or house style) from now on in this project.', shape: { name: z.string() }, run: (a) => { actions.push({ do: 'use_skill', skill: a.name }); return `Queued: use ${a.name}.`; } },
     { name: 'drop_skill', description: 'Stop following a team skill on this project.', shape: { name: z.string() }, run: (a) => { actions.push({ do: 'drop_skill', skill: a.name }); return `Queued: drop ${a.name}.`; } },
+    { name: 'ask_user', description: 'Ask the person to decide with real controls in the chat: option cards (choice/multi), slider, colour swatches, toggle, text. Use it instead of asking in prose when a choice is theirs or the request is too vague. Give defaults. One form per turn; after calling it, stop and wait for their answer.', shape: { title: z.string(), description: z.string().optional(), submit: z.string().optional(), fields: z.array(z.object({ id: z.string().optional(), label: z.string(), hint: z.string().optional(), type: z.enum(['choice', 'multi', 'text', 'slider', 'color', 'toggle']), options: z.array(z.object({ value: z.string(), label: z.string().optional(), description: z.string().optional(), swatch: z.string().optional() })).optional(), min: z.number().optional(), max: z.number().optional(), step: z.number().optional(), unit: z.string().optional(), value: z.any().optional(), placeholder: z.string().optional() })).min(1).max(4) }, run: (a) => { const f = normalizeForm(a); if (!f) return 'That form had nothing askable (choices need 2+ options). Rewrite it or ask in plain text.'; if (actions.some((x) => x.do === 'ask')) return 'Only one form per turn.'; actions.push({ do: 'ask', form: a }); return 'Queued: the form will appear in chat. Stop and wait for the answer.'; } },
     { name: 'render', description: 'Render the final video files. Only when the person asks to render or export.', shape: { formats: z.array(z.enum(['9x16', '4x5', '1x1'])).optional() }, run: (a) => { actions.push({ do: 'render', formats: a.formats }); return 'Queued: render.'; } },
   ];
   const skills = await skillBlock(pid, 'chat', p).catch(() => '');
-  const system = `You are Nick, the video editor inside TrueCut. This project is a FOUNDER TALK: a real recording cut into a short with an illustrated panel per beat. You edit by calling tools; the edits run after you finish. Work freely: use as many tools as the request needs (for example change the layout, look and captions together), and ask nothing unless the request is truly unclear. "Beat N" and "scene N" mean the same thing. Never invent facts, numbers or quotes: everything on screen comes from what the speaker said. The speaker's own voice is never replaced or re-voiced. Reply in one or two short, friendly sentences saying what you did; do not list the tools.${skills}`;
+  const system = `You are Nick, the video editor inside TrueCut. This project is a FOUNDER TALK: a real recording cut into a short with an illustrated panel per beat. You edit by calling tools; the edits run after you finish. Work freely: use as many tools as the request needs (for example change the layout, look and captions together), and ask nothing unless the request is truly unclear or a choice is genuinely theirs; when you do ask, call ask_user so they get buttons, cards, sliders or swatches instead of a typed question (one form per turn, then stop and wait). "Beat N" and "scene N" mean the same thing. Never invent facts, numbers or quotes: everything on screen comes from what the speaker said. The speaker's own voice is never replaced or re-voiced. Reply in one or two short, friendly sentences saying what you did; do not list the tools.${skills}`;
   const prompt = `Current talk: ${p.talk.duration.toFixed(0)}s (target ${p.intake.length}s), layout ${p.talk.layout}, look ${p.style?.preset}.\nBeats:\n${p.talk.beats.map((b, i) => `${i + 1}. "${b.headline}" [${b.visual?.kind}]`).join('\n')}\n\n${recentChat(p)}User: ${text}`;
   try {
     const r = await runAgent({ system, prompt, tools, operation: 'nick-agent', maxTurns: 8 });
@@ -612,14 +617,15 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
   if (!plan && sdkEnabled()) plan = await talkAgentPlan(pid, p, text);
   if (!plan && config.anthropicKey) plan = await callTool<any>({
     model: config.model, maxTokens: 1500,
-    system: `You are Nick, the editor inside TrueCut. This project is a FOUNDER TALK: a real recording cut into a short with an illustrated panel per beat. Map the user's message to actions. "scene N" means beat N. restoryboard = re-edit the whole cut with the instruction (e.g. "start with the tribal knowledge bit", "more energy", "drop the intro"). revise_scene = redraw one beat's headline/illustration. set_layout (${TALK_LAYOUTS.join(' | ')}): ${Object.entries(LAYOUT_INFO).map(([k, v]) => `${k} = ${v}`).join(' ')} Templates (apply_template, only when the user asks for a template or a ready-made style): ${TALK_TEMPLATES.map((x) => `${x.id} = ${x.tagline}`).join('; ')}. Without a template you have full freedom: change the layout, look, captions, music, cut and individual beats as the user asks. Directions: ${Object.keys(DIRECTIONS).join(', ')}. HOW TO DECIDE THE LOOK: read what the person asks for and the kind of visual they describe, then pick. A named style or ready-made look means a template or direction. Their own company, brand or a feel no preset matches means match_brand, then draw in that language. A specific picture or idea that no tool kind covers means a freehand custom visual. Mix freely. Always start from what the person asked for and the picture that would explain it; use a library block only when it draws exactly that picture, and draw it freehand otherwise. Never default to a template just because it exists.`,
+    system: `You are Nick, the editor inside TrueCut. This project is a FOUNDER TALK: a real recording cut into a short with an illustrated panel per beat. Map the user's message to actions. "scene N" means beat N. restoryboard = re-edit the whole cut with the instruction (e.g. "start with the tribal knowledge bit", "more energy", "drop the intro"). revise_scene = redraw one beat's headline/illustration. set_layout (${TALK_LAYOUTS.join(' | ')}): ${Object.entries(LAYOUT_INFO).map(([k, v]) => `${k} = ${v}`).join(' ')} Templates (apply_template, only when the user asks for a template or a ready-made style): ${TALK_TEMPLATES.map((x) => `${x.id} = ${x.tagline}`).join('; ')}. Without a template you have full freedom: change the layout, look, captions, music, cut and individual beats as the user asks. Directions: ${Object.keys(DIRECTIONS).join(', ')}. HOW TO DECIDE THE LOOK: read what the person asks for and the kind of visual they describe, then pick. A named style or ready-made look means a template or direction. Their own company, brand or a feel no preset matches means match_brand, then draw in that language. A specific picture or idea that no tool kind covers means a freehand custom visual. Mix freely. Always start from what the person asked for and the picture that would explain it; use a library block only when it draws exactly that picture, and draw it freehand otherwise. Never default to a template just because it exists.${ASK_GUIDE}`,
     tool: DECIDE_TOOL,
     content: [{ type: 'text', text: `Length now: ${p.talk.duration.toFixed(0)}s (target ${p.intake.length}s). Layout: ${p.talk.layout}. Look: ${p.style?.preset}.\nBeats:\n${p.talk.beats.map((b, i) => `${i + 1}. "${b.headline}" [${b.visual?.kind}]`).join('\n')}\n\n${recentChat(p)}User: ${text}` }],
   });
   if (!plan) { await post(pid, { role: 'nick', text: 'Without an AI key I can change the length, layout, look and captions, or render. Add an Anthropic API key in Settings → API keys for free-form edits.', replies: ['Render it', 'Switch to overlay layout', 'Make it shorter'] }); return; }
   if (plan.reply) await post(pid, { role: 'nick', text: plan.reply });
-  let recut = null as { brief: any; note: string } | null; let changed = false; let relayout = false;
+  let recut = null as { brief: any; note: string } | null; let changed = false; let relayout = false; let ask = null as ReturnType<typeof normalizeForm>;
   for (const ac of plan.actions || []) {
+    if (ac.do === 'ask' && !ask) ask = normalizeForm(ac.form);
     if (ac.do === 'set_length' && ac.length) recut = { brief: { ...(recut?.brief || {}), length: ac.length }, note: recut?.note || '' };
     if (ac.do === 'restoryboard') recut = { brief: recut?.brief || {}, note: ac.instruction || '' };
     if (ac.do === 'set_direction' && ac.preset) await setDirection(pid, ac.preset, jobId, true);
@@ -634,6 +640,7 @@ async function interpretTalk(pid: string, text: string, jobId: string) {
     if (ac.do === 'revise_scene' && ac.scene && ac.instruction) { const pr = await progress(pid, jobId, `Redrawing beat ${ac.scene}`); await pr.step(ac.instruction); await reviseBeat(pid, ac.scene - 1, ac.instruction); await pr.finish(`Beat ${ac.scene} redrawn`); changed = true; }
     if (ac.do === 'render') { await render(pid, ac.formats, jobId); return; }
   }
+  if (ask) { await post(pid, { role: 'nick', text: '', cards: [{ ...ask }] }); return; }
   if (recut) return cutTalk(pid, recut.brief, jobId, recut.note);
   if (relayout) { const pr = await progress(pid, jobId, 'Re-framing the speaker'); await pr.step(`Switching to the ${(await getProject(pid)).talk.layout} layout`); await buildProxies(pid, sublog(pr)); await pr.finish('Layout switched'); changed = true; }
   if (changed) await post(pid, { role: 'nick', text: 'Updated. The monitor has the change.', cards: [{ kind: 'edit' }], replies: ['Render it', 'Try another look'] });

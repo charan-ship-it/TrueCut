@@ -379,3 +379,13 @@ table.t{width:100%;border-collapse:collapse} table.t td,table.t th{padding:9px 8
 .bigshot{display:block;border:1px solid var(--line);border-radius:var(--rs);overflow:hidden;max-height:60vh;background:var(--panel3)}
 .bigshot img{width:100%;display:block}
 .ocr{white-space:pre-wrap;font:11.5px/1.5 JBM,monospace;background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:10px;max-height:260px;overflow:auto;margin:8px 0 0}
+
+.fcard{max-width:560px}
+.fopts{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.fopt{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;padding:10px 12px;border-radius:10px;border:1px solid var(--ln);background:var(--card,transparent);color:inherit;cursor:pointer;transition:border-color .12s,background .12s}
+.fopt:hover:not(:disabled){border-color:var(--a,#4f6bff)}
+.fopt.on{border-color:var(--a,#4f6bff);background:color-mix(in srgb,var(--a,#4f6bff) 10%,transparent)}
+.fopt .ft{font-weight:500;font-size:13.5px}.fopt .fd{font-size:12px;opacity:.65;line-height:1.35}
+.fsw{display:inline-block;width:18px;height:18px;border-radius:50%;border:1px solid var(--ln)}
+.fsw.big{width:28px;height:28px;cursor:pointer;padding:0}.fsw.big.on{outline:2px solid var(--a,#4f6bff);outline-offset:2px}
+.flabel{font-weight:500;font-size:13.5px;margin-bottom:6px}

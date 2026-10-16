@@ -7,6 +7,7 @@ import { SCENE_TYPES } from '@truecut/engine/timeline.js';
 import { DIRECTIONS } from '@truecut/engine/styles.js';
 import { TALK_TEMPLATES } from '@truecut/core/talk/templates';
 import type { ChatMsg } from '@truecut/shared/types';
+import { summarizeAnswers } from '@truecut/core/director/form';
 
 type P = { c: any; ctx: Ctx; send: (a: any) => void; busy: boolean; msgId: string; latest: boolean; setPreview: (s: string | null) => void; chat: ChatMsg[] };
 function LayoutGlyph({ v }: { v: string }) {
@@ -40,6 +41,7 @@ export function Card(props: P) {
     case 'edit': return <Edit {...props} />;
     case 'cast': return <CastCard {...props} />;
     case 'library': return <LibraryCard {...props} />;
+    case 'form': return <FormCardUI {...props} />;
     case 'error': return <div className="issue error">{props.c.message}</div>;
     default: return null;
   }
@@ -445,6 +447,41 @@ function LibraryCard({ c }: P) {
     <div className="ccard">
       <div className="hd"><span className="mono">From the team Library</span><span className="grow" /><a className="xs muted" href="/library">Open Library</a></div>
       <div className="bd"><div className="thumbs">{ids.map((id) => <img key={id} src={`/api/library/${id}/image?thumb=1`} alt="" />)}</div></div>
+    </div>
+  );
+}
+
+// ─── form: Nick asks with real controls ───
+function FormCardUI({ c, send, busy, chat, msgId }: P) {
+  const answered = chat.findIndex((m) => m.id === msgId) < chat.length - 1 && chat.slice(chat.findIndex((m) => m.id === msgId) + 1).some((m) => m.role === 'user');
+  const [a, setA] = useState<Record<string, any>>(() => Object.fromEntries((c.fields || []).map((f: any) => [f.id, f.value ?? (f.type === 'multi' ? [] : f.type === 'toggle' ? false : '')])));
+  const set = (id: string, v: any) => setA((x) => ({ ...x, [id]: v }));
+  const off = answered || busy;
+  const submit = () => send({ type: 'message', text: summarizeAnswers(c as any, a) });
+  if (answered) return <div className="ccard"><div className="hd"><span style={{ color: 'var(--good)' }}><I.check size={14} /></span><h3>{c.title}</h3><span className="grow" /><span className="xs dim">Answered</span></div></div>;
+  return (
+    <div className="ccard fcard">
+      <div className="hd"><h3>{c.title}</h3></div>
+      <div className="bd col" style={{ gap: 14 }}>
+        {c.description && <div className="small dim">{c.description}</div>}
+        {c.fields.map((f: any) => (
+          <div key={f.id} className="ffield">
+            <div className="flabel">{f.label}{f.hint && <span className="xs dim"> · {f.hint}</span>}</div>
+            {(f.type === 'choice' || f.type === 'multi') && (
+              <div className="fopts">{f.options.map((o: any) => {
+                const on = f.type === 'multi' ? (a[f.id] || []).includes(o.value) : a[f.id] === o.value;
+                const pick = () => f.type === 'multi' ? set(f.id, on ? a[f.id].filter((x: string) => x !== o.value) : [...(a[f.id] || []), o.value]) : set(f.id, on ? '' : o.value);
+                return <button key={o.value} type="button" disabled={off} className={`fopt${on ? ' on' : ''}`} onClick={pick}>{o.swatch && <i className="fsw" style={{ background: o.swatch }} />}<span className="ft">{o.label}</span>{o.description && <span className="fd">{o.description}</span>}</button>;
+              })}</div>
+            )}
+            {f.type === 'slider' && <div className="row" style={{ gap: 12 }}><input type="range" disabled={off} min={f.min} max={f.max} step={f.step} value={a[f.id]} onChange={(e) => set(f.id, Number(e.target.value))} style={{ flex: 1 }} /><span className="mono" style={{ minWidth: 56, textAlign: 'right' }}>{a[f.id]}{f.unit ? ` ${f.unit}` : ''}</span></div>}
+            {f.type === 'color' && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>{(f.options || []).map((o: any) => <button key={o.value} type="button" disabled={off} aria-label={o.value} className={`fsw big${a[f.id] === o.value ? ' on' : ''}`} style={{ background: o.value }} onClick={() => set(f.id, o.value)} />)}<input type="color" disabled={off} value={/^#[0-9a-f]{6}$/i.test(a[f.id]) ? a[f.id] : '#4f6bff'} onChange={(e) => set(f.id, e.target.value)} /><input className="mono" disabled={off} value={a[f.id]} onChange={(e) => set(f.id, e.target.value)} style={{ width: 92 }} /></div>}
+            {f.type === 'toggle' && <div className="seg" style={{ alignSelf: 'flex-start' }}><button disabled={off} className={a[f.id] ? 'on' : ''} onClick={() => set(f.id, true)}>Yes</button><button disabled={off} className={!a[f.id] ? 'on' : ''} onClick={() => set(f.id, false)}>No</button></div>}
+            {f.type === 'text' && <input disabled={off} value={a[f.id]} placeholder={f.placeholder || ''} onChange={(e) => set(f.id, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && c.fields.length === 1) submit(); }} />}
+          </div>
+        ))}
+        <div className="row"><span className="grow" /><button className="btn primary" disabled={off} onClick={submit}>{c.submit || 'Continue'}<I.arrowR size={15} /></button></div>
+      </div>
     </div>
   );
 }

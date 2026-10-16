@@ -3,7 +3,7 @@
 // worker can give renders their own concurrency.
 import { PgBoss } from 'pg-boss';
 import { env } from '@truecut/config';
-import { databaseUrl, failStaleJobs, updateProject, type Job } from '@truecut/db';
+import { databaseUrl, failStaleJobs, updateProject, projectsWithOpenCards, getJob, type Job } from '@truecut/db';
 import { handlerKinds, isHeavy, runJob, setSender } from './jobs';
 
 const g = globalThis as any;
@@ -51,6 +51,7 @@ export async function startWorker(opts: { concurrency?: number; renderSlots?: nu
     return rows.length;
   };
   await reap();
+  sweepOpenCards().catch((e) => console.error('[worker] card sweep', e?.message));
   const reaper = setInterval(() => { reap().catch((e) => console.error('[worker] reaper', e?.message)); }, 60_000);
   for (const kind of handlerKinds()) {
     await ensureQueue(b, kind);
@@ -82,4 +83,15 @@ export async function closeOrphanedCards(rows: { id: string; projectId: string |
       });
     } catch (e: any) { console.error('[worker] could not close a stale card', r.id, e?.message); }
   }
+}
+
+/** Cards left spinning before the reaper closed them: any open progress card whose job is not queued or running is dead. Runs once at startup. */
+export async function sweepOpenCards() {
+  let closed = 0;
+  for (const { id, jobIds } of await projectsWithOpenCards()) {
+    const dead: { id: string; projectId: string }[] = [];
+    for (const j of jobIds) { const job = await getJob(j).catch(() => null); if (!job || (job.status !== 'queued' && job.status !== 'running')) dead.push({ id: j, projectId: id }); }
+    if (dead.length) { await closeOrphanedCards(dead); closed += dead.length; }
+  }
+  if (closed) console.log(`[worker] closed ${closed} stale progress card(s) from earlier runs`);
 }

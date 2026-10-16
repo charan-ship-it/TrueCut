@@ -1,6 +1,6 @@
 // Projects. The whole project document lives in projects.data (validated by the shared zod schema);
 // updates take a row lock so the web app and the worker can both edit a project without losing writes.
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import { Project } from '@truecut/shared/types';
 import { db } from './client';
 import { projects, users } from './schema';
@@ -67,4 +67,16 @@ export async function importProject(p: Project, opts: { workspaceId?: string; cr
   const parsed = Project.parse(p);
   await db().insert(projects).values({ id: parsed.id, workspaceId: ws, createdBy: opts.createdBy || null, name: parsed.name, kind: parsed.kind, stage: parsed.stage, data: parsed, summary: summarize(parsed), createdAt: new Date(parsed.createdAt || Date.now()), updatedAt: new Date(parsed.updatedAt || Date.now()) })
     .onConflictDoUpdate({ target: projects.id, set: { data: parsed, name: parsed.name, kind: parsed.kind, stage: parsed.stage, summary: summarize(parsed) } });
+}
+
+/** Projects whose chat still shows a progress card that never finished. Used by the worker to clean up cards left spinning by jobs that no longer exist. */
+export async function projectsWithOpenCards(): Promise<{ id: string; jobIds: string[] }[]> {
+  const rows = await db().select({ id: projects.id, data: projects.data }).from(projects).where(sql`${projects.data}::text like '%"progress"%'`).limit(2000);
+  const out: { id: string; jobIds: string[] }[] = [];
+  for (const r of rows as any[]) {
+    const ids = new Set<string>();
+    for (const m of (r.data?.chat || []) as any[]) if (m.jobId && (m.cards || []).some((c: any) => c.kind === 'progress' && !c.done)) ids.add(m.jobId);
+    if (ids.size) out.push({ id: r.id, jobIds: [...ids] });
+  }
+  return out;
 }

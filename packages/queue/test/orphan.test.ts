@@ -17,3 +17,14 @@ describe.skipIf(!dbReady)('a worker restart closes the progress card it left spi
     expect((await getProject(p.id)).chat).toHaveLength(2);
   });
 });
+
+describe.skipIf(!dbReady)('startup sweep', () => {
+  it('closes open cards whose job is gone, leaves the rest', async () => {
+    const { sweepOpenCards } = await import('../src/boss');
+    const p = await createProject('Sweep');
+    await updateProject(p.id, (pp) => { pp.chat.push({ id: 'm1', role: 'nick', jobId: 'ghost', text: '', cards: [{ kind: 'progress', title: 'Rendering the talk', steps: [{ label: 'x', state: 'run' }], done: false }], replies: [], attachments: [], at: new Date().toISOString() } as any); });
+    await sweepOpenCards();
+    const c: any = (await getProject(p.id)).chat[0];
+    expect(c.cards[0].done).toBe(true);
+  });
+});

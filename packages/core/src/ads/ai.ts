@@ -10,6 +10,7 @@ import { toJpeg } from '../render/media';
 import { verifyFact, numbersIn, checkScenes } from '@truecut/shared/facts';
 import type { Fact, Project, Question, Scene, Visual } from '@truecut/shared/types';
 import { SCENE_TYPES } from '@truecut/engine/timeline.js';
+import { sanitizeMarkup } from '@truecut/engine/talk.js';
 import { projectLayout } from '@truecut/shared/compose';
 
 type Log = (msg: string, pct?: number) => void;
@@ -31,6 +32,7 @@ Scene library (type → props). Strings are short. All numbers MUST come from ap
 - split: { image: visualId (REQUIRED), kicker, title: "≤34 chars", body?: "≤90 chars" }
 - list: { kicker?, title: "≤30 chars", items: ["3-5 items, ≤28 chars each"] | [{title, meta}], marker?: "number"|"check"|"dot" }
 - compare: { kicker?, left: {label: "Before/old way", items: ["≤4 short items"]}, right: {label: "With <product>", items: ["≤4 short items"]} }
+- custom: { html: "<svg viewBox='0 0 1080 1080'>…</svg>" (or plain HTML) with a <style> block of CSS @keyframes } → FREEHAND: when no scene above fits the idea, DRAW the scene yourself in this company's own visual language (see the brand block). Rules: design in a 1080×1080 viewBox, centred with 70px margins (it is centred in taller frames); use the theme colours via var(--a) accent, var(--a2), var(--cr) ink, var(--bg), var(--card), var(--mu), var(--ln); animate with CSS keyframes (animation: name .8s ease-out both; animation-delay: .3s) so it builds in step with the voice line; one clear idea, plain shapes, a few big labels (≤24 chars, large type), at most ~6000 characters; NO scripts, handlers, links or external images (a real screenshot may be used as <img data-asset="visualId">). Any number or name drawn must come from an approved fact. Use it when it explains the idea better than a template (a diagram, a custom metaphor, how things connect), and use a template scene when one fits well.
 - end: { image?: visualId, shape?, wordmark: "product name", tagline: "≤40 chars", cta: "button text", url?: "domain", byline?: "by Company" }
 Durations are automatic (from the voice line). Scene type guidance:
 ${Object.entries(SCENE_TYPES).map(([k, v]: any) => `  · ${k} — ${v.desc}`).join('\n')}
@@ -263,9 +265,14 @@ export async function storyboard(pid: string, log: Log) {
 }
 
 export function normalizeScene(p: Project, s: any): Scene {
-  const type = SCENE_TYPES[s.type as keyof typeof SCENE_TYPES] ? s.type : 'headline';
+  let type = SCENE_TYPES[s.type as keyof typeof SCENE_TYPES] ? s.type : 'headline';
   const vids = new Set(p.visuals.map((v) => v.id));
   const props = { ...(s.props || {}) };
+  if (type === 'custom') {
+    const html = sanitizeMarkup(String(props.html || props.svg || '')); delete props.svg;
+    if (!/<(svg|div)/i.test(html)) { type = 'headline'; props.lines = props.lines || splitLines(String((typeof s.vo === 'string' ? s.vo : s.vo?.text) || props.title || '')); delete props.html; }
+    else props.html = html;
+  }
   if (props.image && !vids.has(props.image)) delete props.image;
   if (Array.isArray(props.images)) props.images = props.images.filter((x: string) => vids.has(x));
   if (type === 'screen' && !props.image) { const v = p.visuals.find((x) => x.use && x.kind === 'screenshot'); if (v) { props.image = v.id; if (!props.focus && v.focus) props.focus = v.focus; } }

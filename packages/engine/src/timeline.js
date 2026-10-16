@@ -28,6 +28,7 @@ export const SCENE_TYPES = {
   split:    { min: 3.0, max: 4.5, label: 'Split (image + text)', desc: 'A real screenshot/image fills half the frame with a slow push; a kicker, title and short body sit beside/below it. Editorial and calm.' },
   list:     { min: 3.0, max: 5.0, label: 'List', desc: 'A title and 3-5 items that land one by one with numbers, checks or dots. Steps, features, reasons.' },
   compare:  { min: 3.5, max: 5.0, label: 'Before / after', desc: 'Two columns: the old way (struck through, fading) vs the new way (lit up with checks). Up to 4 items each.' },
+  custom:   { min: 3.0, max: 6.0, label: 'Freehand drawing', desc: 'Nick draws this scene himself (SVG/HTML with CSS keyframes) in the brand\'s own visual language, for an idea no other scene type fits: a diagram, a metaphor, a map of how things connect.' },
   end:      { min: 3.0, max: 4.0, label: 'End card', desc: 'Image, wordmark, tagline and call-to-action button. Always last.' },
 };
 
@@ -142,6 +143,9 @@ function buildCues(scenes, revealIndex) {
         break; }
       case 'compare':
         cues.push({ kind: 'sweep', t: at(s, 1.0) }, { kind: 'success', t: at(s, 1.7) });
+        break;
+      case 'custom':
+        cues.push({ kind: 'whoosh', t: at(s, 0.05), d: 0.5 }, { kind: 'blip', t: at(s, 0.9), f: 784, g: 0.14, d: 0.15 });
         break;
       case 'end':
         cues.push({ kind: 'sting', t: s.start }, { kind: 'logo', t: at(s, 1.55) });

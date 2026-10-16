@@ -52,7 +52,9 @@ export function checkScenes(p: Project): Issue[] {
   const visualIds = new Set(p.visuals.map((v) => v.id));
   const factIds = new Set(p.facts.map((f) => f.id));
   p.scenes.forEach((sc: Scene, i) => {
-    const texts = [sc.vo?.text || '', sc.caption || '', sc.status || '', ...walkStrings(sc.props)];
+    // freehand drawings: only the words a viewer can read count, never CSS or attributes
+    const shown = sc.type === 'custom' ? { ...sc.props, html: String(sc.props?.html ?? sc.props?.svg ?? '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' '), svg: undefined } : sc.props;
+    const texts = [sc.vo?.text || '', sc.caption || '', sc.status || '', ...walkStrings(shown)];
     const bad = new Set<string>();
     for (const t of texts) for (const n of numbersIn(t)) {
       const bare = n.replace(/[%kmbx]$/, '');

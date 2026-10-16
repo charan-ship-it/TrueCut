@@ -137,3 +137,10 @@ Templates (`packages/core/src/talk/templates.ts`) are optional presets: layout +
 ## Nick's agent loop (Claude Agent SDK)
 
 `packages/core/src/agent/sdk.ts` runs free-form chat for founder talks as an agent loop on the Claude Agent SDK, behind `NICK_SDK=1`. Nick gets only our own in-process tools (`set_layout`, `apply_template`, `set_look`, `set_captions`, `set_music`, `revise_beat`, `delete_beat`, `recut`, `render`, skills …); the SDK's shell/file/web tools are off. Tools only record decisions; the existing action executor carries them out, so an edit behaves the same whether a rule or the agent asked for it. Budget check and the usage ledger wrap every run, history and project state come from Postgres each turn (sessions are not persisted, workers are ephemeral), and a failed run falls back to the single-call path. Cheap deterministic rules (`/skills`, "another look", "captions: outline") still run first, with no model call. Cost note: the SDK adds roughly 28k tokens of fixed prompt to every run (cached after the first), so an agent turn costs more than the single-call path; each run is capped (`maxBudgetUsd` 0.5, 8 turns, 2 minutes).
+
+## Freehand scenes and brand language
+
+Templates are a starting point, not a ceiling. Two mechanisms let Nick go beyond them:
+
+- **Brand language** (`packages/core/src/brand/language.ts`): from the site's computed styles, logo and screenshots, Nick derives a palette, fonts, shapes and mood that become the project's look (`Project.brandLanguage`). It is injected into every storyboard, talk plan and revision prompt. Picking a preset direction by hand drops it.
+- **Freehand drawings**: the `custom` ad scene (`SCENES.custom` in `runtime.js`) and the `custom` founder-talk visual (`TOOLKIT.custom` in `talk.js`). Nick writes SVG/HTML plus CSS keyframes; `sanitizeMarkup` reduces it to drawing (no scripts, handlers, frames or network), and the scene clock drives the animations (`getAnimations().currentTime`) so renders are frame-exact. The fact guard reads only the visible text, never CSS or attributes.

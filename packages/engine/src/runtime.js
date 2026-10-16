@@ -3,6 +3,7 @@
 // Every visual token comes from the creative direction (styles.js), so each video looks different.
 import { layout, FORMATS, localOffset, SCENE_TYPES } from './timeline.js';
 import { resolveStyle, fontFaceCss, rgb } from './styles.js';
+import { sanitizeMarkup } from './talk.js';
 
 const cl = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 const pr = (t, a, b) => cl((t - a) / (b - a));
@@ -801,6 +802,25 @@ export const SCENES = {
         if (on) panel.style.opacity = flip ? 1 : 0;
       });
       const ex = eio(pr(lt, d - 0.2, d)); if (ex > 0) tf(e, { s: 1 + ex * 0.3, o: 1 - ex });
+    };
+  },
+
+  // Freehand: Nick's own drawing for an idea no scene type fits. Markup is untrusted, so it is reduced to
+  // drawing (shared sanitizer); CSS keyframes are driven by the scene clock so every render is frame-exact.
+  custom(e, p, c) {
+    const { W, H, assetUrl } = c;
+    const box = mk(e, 'div', 'ab', { left: 0, top: 0, width: W + 'px', height: H + 'px', color: 'var(--cr)', overflow: 'hidden' });
+    box.style.setProperty('--ink', 'var(--cr)');
+    box.innerHTML = sanitizeMarkup(p.html || p.svg || '');
+    box.querySelectorAll('img[data-asset]').forEach((im) => { im.src = assetUrl(im.getAttribute('data-asset')); im.removeAttribute('data-asset'); });
+    const svg = box.querySelector('svg');
+    if (svg) { svg.setAttribute('width', '100%'); svg.setAttribute('height', '100%'); if (!svg.getAttribute('preserveAspectRatio')) svg.setAttribute('preserveAspectRatio', 'xMidYMid meet'); svg.style.position = 'absolute'; svg.style.left = 0; svg.style.top = 0; }
+    let anims = null;
+    return (lt, d) => {
+      if (!anims) { anims = box.getAnimations({ subtree: true }); anims.forEach((a) => a.pause()); }
+      anims.forEach((a) => { try { a.currentTime = lt * 1000; } catch {} });
+      const ex = eio(pr(lt, d - 0.27, d));
+      tf(box, { o: eo(pr(lt, 0, 0.2)) * (1 - ex), y: -ex * 30 });
     };
   },
 

@@ -81,7 +81,7 @@ export const VO = z.object({
 
 export const Scene = z.object({
   id: z.string(),
-  type: z.enum(['stat', 'headline', 'bars', 'reveal', 'card', 'wall', 'selector', 'document', 'action', 'quote', 'screen', 'kinetic', 'split', 'list', 'compare', 'end']),
+  type: z.enum(['stat', 'headline', 'bars', 'reveal', 'card', 'wall', 'selector', 'document', 'action', 'quote', 'screen', 'kinetic', 'split', 'list', 'compare', 'custom', 'end']),
   vo: VO.optional(),
   caption: z.string().optional(),
   status: z.string().optional(),

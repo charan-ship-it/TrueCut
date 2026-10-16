@@ -5,7 +5,7 @@
 // A person can also steer it in chat ("warmer", "rounder", "feel like a fintech, not a startup").
 import fs from 'node:fs';
 import { config } from '@truecut/config';
-import { getProject, updateProject } from '@truecut/db';
+import { getProject, updateProject, projectMeta, findBrandKit, saveBrandKit, brandKey } from '@truecut/db';
 import { projectPath } from '@truecut/storage';
 import { DIRECTIONS, FONTS, BACKGROUNDS } from '@truecut/engine/styles.js';
 import type { Project } from '@truecut/shared/types';
@@ -83,7 +83,30 @@ export async function deriveBrandLanguage(pid: string, instruction = ''): Promis
     background: BACKGROUNDS.includes(out.background) ? out.background : DIRECTIONS[base].background, theme: out.theme === 'dark' ? 'dark' : 'light',
   };
   await updateProject(pid, (pp: any) => { pp.brandLanguage = lang; applyBrandLanguage(pp); pp.audioHash = undefined; });
+  await saveToKit(pid, p, lang).catch(() => {});
   return lang;
+}
+
+/** What identifies this company across projects: the site host(s) of its sources, then the brand name. */
+export function brandKeys(p: Project): string[] {
+  const hosts = p.sources.filter((s: any) => s.kind === 'url').map((s: any) => brandKey(String(s.ref || s.label || '')));
+  return [...hosts, brandKey(p.intake.brandName || '')].filter(Boolean);
+}
+async function saveToKit(pid: string, p: Project, lang: BrandLanguage) {
+  const m = await projectMeta(pid); if (!m) return;
+  await saveBrandKit(m.workspaceId, brandKeys(p), p.intake.brandName || p.intake.productName || p.name, lang, m.createdBy);
+}
+/** The workspace's saved language for this company, if one exists. */
+export async function savedBrand(pid: string): Promise<{ lang: BrandLanguage; name: string } | null> {
+  const p = await getProject(pid); const m = await projectMeta(pid); if (!m) return null;
+  const k = await findBrandKit(m.workspaceId, brandKeys(p)); if (!k) return null;
+  return { lang: k.language as BrandLanguage, name: k.name };
+}
+/** Use the saved language on this project (no model call). */
+export async function useSavedBrand(pid: string): Promise<{ lang: BrandLanguage; name: string } | null> {
+  const k = await savedBrand(pid); if (!k) return null;
+  await updateProject(pid, (pp: any) => { pp.brandLanguage = k.lang; applyBrandLanguage(pp); pp.audioHash = undefined; });
+  return k;
 }
 
 /** Put the brand language on the project's look (palette, fonts, card, background) over its base direction. */

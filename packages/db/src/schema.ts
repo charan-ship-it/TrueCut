@@ -178,3 +178,14 @@ export const skills = pgTable('skills', {
 }, (t) => [
   uniqueIndex('skills_ws_name_idx').on(t.workspaceId, t.name).where(sql`${t.deletedAt} is null`),
 ]);
+
+/** A company's learned visual language, saved once per workspace so every later project for it starts in the same look. */
+export const brandKits = pgTable('brand_kits', {
+  id: text('id').primaryKey(),
+  workspaceId: text('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  key: text('key').notNull(),            // lowercase site host (acme.com) or brand name
+  name: text('name').notNull().default(''),
+  language: jsonb('language').notNull(),
+  updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex('brand_kits_ws_key_idx').on(t.workspaceId, t.key)]);

@@ -22,7 +22,7 @@ import { ffmpeg } from '../render/media';
 import { checkScenes } from '@truecut/shared/facts';
 import { defineHandler, enqueue, isBusy, type Log } from '@truecut/queue';
 import { DIRECTIONS, CAPTIONS, CAPTION_STYLES } from '@truecut/engine/styles.js';
-import { deriveBrandLanguage, dropBrandLook, applyBrandLanguage } from '../brand/language';
+import { deriveBrandLanguage, dropBrandLook, applyBrandLanguage, useSavedBrand } from '../brand/language';
 import { UserFacingError } from '../system/errors';
 import { runAgent, sdkEnabled, z, type AgentTool } from '../agent/sdk';
 import { useBuiltins, chooseSkills, skillBlock, projectSkills, toggleSkill } from '../skills/skills';
@@ -324,6 +324,11 @@ async function pickAngle(pid: string, angleId: string, jobId: string) {
 
 /** Learn the company's own visual language from its sources (and what the person says) and use it as the look. */
 async function matchBrand(pid: string, instruction: string, jobId: string) {
+  if (!instruction.trim() || /^(use|apply)\b.*\b(saved|kit)\b/i.test(instruction)) {
+    const saved = await useSavedBrand(pid).catch(() => null);
+    if (saved) { await post(pid, { role: 'nick', text: `I already know **${saved.name}**'s look from an earlier project, so I've applied it: **${saved.lang.mood}** The preview has updated. Say “re-read the brand” if the site has changed, or tell me what to adjust (“warmer”, “rounder”).`, replies: ['Render it', 'Re-read the brand', 'Make it warmer'] }); return; }
+  }
+  if (/^re-?read\b/i.test(instruction.trim())) instruction = '';
   const pr = await progress(pid, jobId, 'Reading the brand');
   await pr.step(instruction ? `Applying “${instruction.slice(0, 70)}”` : 'Reading the site, logo and screenshots for their visual language');
   const l = await deriveBrandLanguage(pid, instruction);

@@ -15,7 +15,7 @@ import { getServerSession } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { env, loadEnv } from '@truecut/config';
-import { consumeEmailToken, upsertUser, isMember, projectMeta, memberRole, userForToken, DEFAULT_WORKSPACE_ID, type SessionUser } from '@truecut/db';
+import { consumeEmailToken, upsertUser, isMember, projectMeta, memberRole, userForToken, isInvited, memberStatus, getUserByEmail, DEFAULT_WORKSPACE_ID, type SessionUser } from '@truecut/db';
 
 loadEnv();
 
@@ -24,11 +24,17 @@ const list = (v: string) => v.split(',').map((s) => s.trim().toLowerCase()).filt
  *  even before Google is set up (then nobody gets in). TRUECUT_AUTH=off turns it off. */
 export const authEnabled = () => env('TRUECUT_AUTH') !== 'off' && (!!env('GOOGLE_CLIENT_ID') || env('TRUECUT_AUTH') === 'required' || !!env('RAILWAY_ENVIRONMENT_ID'));
 
-export function emailAllowed(email?: string | null) {
+/** The server's allowlist (domains and addresses set in the environment). */
+export function emailAllowedByEnv(email?: string | null) {
   if (!email) return false;
   const e = email.toLowerCase(); const domains = list(env('ALLOWED_EMAIL_DOMAINS')); const emails = list(env('ALLOWED_EMAILS'));
-  if (!domains.length && !emails.length) return false; // fail closed: nobody gets in until a domain is set
   return emails.includes(e) || domains.includes(e.split('@')[1] || '');
+}
+/** May this address sign in: on the server's allowlist, or invited by an owner from Settings → Team. Fails closed. */
+export async function emailAllowed(email?: string | null) {
+  if (!email) return false;
+  if (emailAllowedByEnv(email)) return true;
+  return isInvited(email).catch(() => false);
 }
 
 export const authOptions: NextAuthOptions = {
@@ -52,7 +58,11 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async signIn({ profile, user }) {
       const verified = (profile as any)?.email_verified !== false;
-      return verified && emailAllowed(user?.email || profile?.email);
+      const email = user?.email || profile?.email;
+      if (!verified || !(await emailAllowed(email))) return false;
+      const known = email ? await getUserByEmail(email).catch(() => null) : null;
+      if (known && (await memberStatus(known.id).catch(() => ({ disabled: false }))).disabled) return false; // switched off in Settings → Team
+      return true;
     },
     async jwt({ token, user }) {
       if (user?.email) { const u = await upsertUser({ email: user.email, name: user.name, image: user.image }); token.uid = u.id; token.ws = DEFAULT_WORKSPACE_ID; token.name = u.name; token.picture = u.image; }
@@ -67,7 +77,7 @@ export const authOptions: NextAuthOptions = {
 
 /** The user for a valid, unused sign-in link (the link is used up), else null. */
 export async function verifyEmailLink(email?: string | null, token?: string | null) {
-  if (!email || !token || !emailAllowed(email)) return null;
+  if (!email || !token || !(await emailAllowed(email))) return null;
   const owner = await consumeEmailToken(email, token);
   return owner ? { id: owner, email: owner, name: null, image: null } : null;
 }
@@ -79,7 +89,9 @@ export async function currentUser(): Promise<(SessionUser & { workspaceId: strin
   if (!authEnabled()) return LOCAL;
   const s: any = await getServerSession(authOptions);
   if (!s?.user?.id) return null;
-  return { id: s.user.id, email: s.user.email, name: s.user.name || '', image: s.user.image || null, workspaceId: s.user.workspaceId || DEFAULT_WORKSPACE_ID };
+  const ws = s.user.workspaceId || DEFAULT_WORKSPACE_ID;
+  if ((await memberStatus(s.user.id, ws).catch(() => ({ disabled: false }))).disabled) return null; // switched off by an owner (Settings → Team)
+  return { id: s.user.id, email: s.user.email, name: s.user.name || '', image: s.user.image || null, workspaceId: ws };
 }
 
 export class HttpError extends Error { constructor(public status: number, message: string) { super(message); } }
@@ -115,5 +127,7 @@ export async function userFromBearer(req: Request) {
   if (!m) return null;
   const u = await userForToken(m[1]);
   // someone whose address is no longer allowed loses token access too
-  return u && (!authEnabled() || emailAllowed(u.email)) ? u : null;
+  if (!u) return null;
+  if (authEnabled() && (!(await emailAllowed(u.email)) || (await memberStatus(u.id, u.workspaceId).catch(() => ({ disabled: false }))).disabled)) return null;
+  return u;
 }

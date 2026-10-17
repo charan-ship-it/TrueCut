@@ -5,6 +5,7 @@ import { env } from '@truecut/config';
 import { db } from './client';
 import { memberships, users, workspaces } from './schema';
 import { newId } from './ids';
+import { takeInviteRole } from './team';
 
 export const DEFAULT_WORKSPACE_ID = 'ws_default';
 let ensured = false;
@@ -37,7 +38,8 @@ export async function upsertUser(u: { email: string; name?: string | null; image
       image: u.image ? u.image : sql`${users.image}`, lastSeenAt: new Date(),
     } }).returning();
   const first = (await db().select().from(memberships).where(eq(memberships.workspaceId, ws)).limit(1)).length === 0;
-  await db().insert(memberships).values({ workspaceId: ws, userId: row.id, role: first ? 'owner' : 'member' }).onConflictDoNothing();
+  const invited = first ? null : await takeInviteRole(email, ws);
+  await db().insert(memberships).values({ workspaceId: ws, userId: row.id, role: first ? 'owner' : invited || 'member' }).onConflictDoNothing();
   return { id: row.id, email: row.email, name: row.name, image: row.image };
 }
 

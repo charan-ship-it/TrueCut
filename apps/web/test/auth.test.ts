@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { emailAllowed } from '../lib/auth';
+import { emailAllowedByEnv as emailAllowed } from '../lib/auth';
 
 const keep = { ...process.env };
 afterEach(() => { process.env = { ...keep }; });

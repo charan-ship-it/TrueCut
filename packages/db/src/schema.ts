@@ -23,6 +23,7 @@ export const memberships = pgTable('memberships', {
   workspaceId: text('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   role: text('role').notNull().default('member'), // owner | member
+  disabled: boolean('disabled').notNull().default(false), // switched off by an owner: cannot sign in or use the app
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.workspaceId, t.userId] })]);
 
@@ -158,6 +159,15 @@ export const emailTokens = pgTable('email_tokens', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index('email_tokens_email_idx').on(t.email)]);
+
+/** Addresses an owner invited from Settings → Team. They may sign in even when their domain is not on the server's allowlist. */
+export const memberInvites = pgTable('member_invites', {
+  workspaceId: text('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  email: text('email').notNull(),
+  role: text('role').notNull().default('member'),
+  invitedBy: text('invited_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.workspaceId, t.email] })]);
 
 /** Team skills: reusable instructions (house style, brand voice, a process) that Nick follows when it writes.
  *  Same shape as an Agent Skill's SKILL.md: a name + a one-line description that says when to use it, and a body. */

@@ -23,7 +23,7 @@ export async function requestSignInLink(o: { email: string; callbackUrl?: string
   const email = o.email.trim().toLowerCase();
   rateLimit('signinIp', o.ip);
   rateLimit('signinEmail', email);
-  if (!emailAllowed(email)) return { sent: false };
+  if (!(await emailAllowed(email))) return { sent: false };
   const { token } = await createEmailToken(email);
   const q = new URLSearchParams({ email, token, callbackUrl: safePath(o.callbackUrl) });
   const link = `${publicBase(o.origin)}/signin/verify?${q}`;

@@ -3,9 +3,10 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '../../components/api';
 import { I } from '../../components/icons';
+import { TeamTab } from '../../components/TeamTab';
 
-type Tab = 'profile' | 'keys' | 'models' | 'skills' | 'usage' | 'extension';
-const TABS: [Tab, string][] = [['profile', 'Profile'], ['keys', 'API keys'], ['models', 'Models & budget'], ['skills', 'Skills'], ['usage', 'Usage'], ['extension', 'Capture extension']];
+type Tab = 'profile' | 'keys' | 'models' | 'skills' | 'team' | 'usage' | 'extension';
+const TABS: [Tab, string][] = [['profile', 'Profile'], ['keys', 'API keys'], ['models', 'Models & budget'], ['skills', 'Skills'], ['team', 'Team'], ['usage', 'Usage'], ['extension', 'Capture extension']];
 
 export default function SettingsPage() { return <Suspense fallback={null}><Settings /></Suspense>; }
 
@@ -27,6 +28,7 @@ function Settings() {
           : tab === 'keys' ? <Keys s={s} reload={load} />
           : tab === 'models' ? <Models s={s} setS={setS} />
           : tab === 'skills' ? <Skills />
+          : tab === 'team' ? <TeamTab />
           : tab === 'usage' ? <Usage />
           : <Extension />}
       </div>

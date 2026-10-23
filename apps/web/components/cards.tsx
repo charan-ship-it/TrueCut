@@ -299,7 +299,13 @@ function Transcript({ ctx }: P) {
   const p = ctx.p; const m = p.talk.media[p.talk.media.length - 1];
   const [words, setWords] = useState<{ w: string; s: number; e: number; sp?: string }[] | null>(null);
   const [open, setOpen] = useState(false);
-  useEffect(() => { if (m?.wordsFile) fetch(fileUrl(p.id, m.wordsFile)).then((r) => r.json()).then(setWords).catch(() => setWords([])); }, [m?.wordsFile]); // eslint-disable-line
+  const [failed, setFailed] = useState(false); const [tries, setTries] = useState(0); const [posterTry, setPosterTry] = useState(0);
+  // The files can reach this web instance a moment after the card appears (the worker syncs them), so a first miss is retried a few times, then shown with a Retry button instead of an empty box.
+  useEffect(() => {
+    if (!m?.wordsFile) return; let dead = false; setFailed(false);
+    const go = (n: number) => fetch(fileUrl(p.id, m.wordsFile!) + (n ? `?r=${n}` : '')).then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); }).then((w) => { if (!dead) setWords(w); }).catch(() => { if (dead) return; if (n < 5) setTimeout(() => go(n + 1), 1500 * (n + 1)); else { setWords([]); setFailed(true); } });
+    go(0); return () => { dead = true; };
+  }, [m?.wordsFile, tries]); // eslint-disable-line
   if (!m) return null;
   // which source seconds are kept in the current cut
   const kept = (t: number) => p.talk.segments.some((sg) => t >= sg.start - 0.01 && t <= sg.end + 0.01);
@@ -311,9 +317,9 @@ function Transcript({ ctx }: P) {
     <div className="ccard">
       <div className="hd"><span className="mono">Transcript</span><span className="grow" /><span className="tc xs">{fmt(m.duration)} · {m.words} words{m.speakers.length > 1 ? ` · ${m.speakers.length} speakers` : ''}{cut ? ` · ${Math.round((p.talk.duration / m.duration) * 100)}% kept` : ''}</span></div>
       <div className="bd" style={{ display: 'grid', gridTemplateColumns: m.poster ? '120px 1fr' : '1fr', gap: 14 }}>
-        {m.poster && <img src={fileUrl(p.id, m.poster)} alt="" style={{ width: 120, aspectRatio: m.w && m.h ? `${m.w}/${m.h}` : '9/16', objectFit: 'cover', borderRadius: 10, border: '1px solid var(--line)' }} />}
+        {m.poster && <img src={fileUrl(p.id, m.poster) + (posterTry ? `?r=${posterTry}` : '')} alt="" onError={() => { if (posterTry < 4) setTimeout(() => setPosterTry(posterTry + 1), 1500 * (posterTry + 1)); }} style={{ width: 120, aspectRatio: m.w && m.h ? `${m.w}/${m.h}` : '9/16', objectFit: 'cover', borderRadius: 10, border: '1px solid var(--line)' }} />}
         <div className="scroll" style={{ maxHeight: open ? 420 : 170, overflow: 'auto', fontSize: 13.5, lineHeight: 1.7, position: 'relative' }}>
-          {words === null ? <span className="dim">Loading…</span> : paras.map((pg, i) => (
+          {words === null ? <span className="dim">Loading…</span> : failed ? <span className="dim">Couldn't load the transcript. <button className="btn ghost sm" onClick={() => { setWords(null); setTries(tries + 1); }}>Retry</button></span> : paras.map((pg, i) => (
             <p key={i} style={{ margin: '0 0 10px' }}><span className="tc xs" style={{ marginRight: 8 }}>{fmt(pg.s)}</span>
               {pg.ws!.map((w, k) => <span key={k} style={cut ? (kept(w.s) ? { color: 'var(--ink)', background: 'rgba(var(--ar),.10)' } : { color: 'var(--dim)', textDecoration: 'line-through', textDecorationColor: 'rgba(255,255,255,.2)' }) : undefined}>{w.w} </span>)}</p>))}
         </div>

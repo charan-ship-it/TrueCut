@@ -105,3 +105,18 @@ export async function signedKeyUrl(key: string, opts: { seconds?: number; downlo
   const { s3, cfg } = client();
   return getSignedUrl(s3, new GetObjectCommand({ Bucket: cfg.bucket, Key: key, ResponseContentDisposition: opts.download ? `attachment; filename="${opts.download.replace(/["\\\r\n]/g, '_')}"` : undefined, ResponseContentType: opts.type }), { expiresIn: opts.seconds || 3600 });
 }
+
+/** Write, read and delete one tiny object so a wrong key, endpoint or region shows up here instead of in the middle of an upload. */
+export async function bucketCheck(): Promise<{ configured: boolean; ok: boolean; error?: string; bucket?: string; host?: string; region?: string }> {
+  const cfg = bucketConfig();
+  if (!cfg) return { configured: false, ok: true };
+  const info = { configured: true, bucket: cfg.bucket, host: cfg.endpoint ? new URL(cfg.endpoint).host : 'aws', region: cfg.region };
+  if (!cfg.accessKeyId || !cfg.secretAccessKey) return { ...info, ok: false, error: 'The bucket access key or secret is not set on this service.' };
+  try {
+    const key = `_health/ping-${Date.now()}`;
+    await putKey(key, Buffer.from('ok'), 'text/plain');
+    const r = await getKey(key); if (!r) throw new Error('wrote an object but could not read it back');
+    await deleteKeys([key]);
+    return { ...info, ok: true };
+  } catch (e: any) { return { ...info, ok: false, error: `${e?.name || 'Error'}: ${String(e?.message || e).slice(0, 200)}` }; }
+}

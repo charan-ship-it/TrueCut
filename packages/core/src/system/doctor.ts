@@ -3,6 +3,9 @@ import { config } from '@truecut/config';
 import { ffmpegPath, ffmpegWorks } from '../render/media';
 import { launchBrowser } from '../render/browser';
 import { sql, secretsAvailable } from '@truecut/db';
+import { bucketCheck } from '@truecut/storage';
+
+let bucketMemo: { at: number; v: Awaited<ReturnType<typeof bucketCheck>> } | null = null;
 
 export async function doctor(opts: { launch?: boolean } = {}) {
   const checks: { id: string; ok: boolean; label: string; hint?: string }[] = [];
@@ -18,5 +21,9 @@ export async function doctor(opts: { launch?: boolean } = {}) {
   checks.push({ id: 'database', ok: dbOk, label: 'Postgres (projects, jobs)', hint: dbHint });
   let writable = true; try { fs.mkdirSync(config.dataDir, { recursive: true }); fs.accessSync(config.dataDir, fs.constants.W_OK); } catch { writable = false; }
   checks.push({ id: 'data', ok: writable, label: `Data folder writable (${config.dataDir})` });
-  return { ok: checks.every((c) => c.ok || c.id === 'anthropic' || c.id === 'eleven' || c.id === 'encryption'), checks, models: { analysis: config.model, creative: config.creativeModel, vision: config.visionModel } };
+  // the file bucket: checked with a real write/read/delete (cached a minute). Reported, but never fails the platform health check.
+  if (!bucketMemo || Date.now() - bucketMemo.at > 60_000) bucketMemo = { at: Date.now(), v: await bucketCheck() };
+  const bk = bucketMemo.v;
+  if (bk.configured) checks.push({ id: 'bucket', ok: bk.ok, label: `File bucket (${bk.bucket} @ ${bk.host}, region ${bk.region})`, hint: bk.ok ? '' : bk.error });
+  return { ok: checks.every((c) => c.ok || c.id === 'anthropic' || c.id === 'eleven' || c.id === 'encryption' || c.id === 'bucket'), checks, models: { analysis: config.model, creative: config.creativeModel, vision: config.visionModel } };
 }

@@ -8,6 +8,7 @@ import { addSource, canUpload, uploadPath, removeSource } from '@truecut/core/so
 import { startIngest } from '@truecut/core/director/actions';
 import { getProject } from '@truecut/db';
 import { saveFile } from '@truecut/storage';
+import { slog } from '@truecut/core/system/log';
 export const dynamic = 'force-dynamic';
 
 const MAX = 4 * 1024 ** 3; // 4 GB
@@ -26,8 +27,9 @@ export const PUT = projectRoute(async (req: Request, { params }: { params: { id:
   let bytes = 0;
   const limit = new Transform({ transform(chunk, _e, cb) { bytes += chunk.length; cb(bytes > MAX ? new Error('That file is over 4 GB.') : null, chunk); } });
   const body = Readable.fromWeb(req.body as any); body.on('error', (e) => limit.destroy(e));
-  try { await saveFile(params.id, rel, body.pipe(limit)); }
-  catch (e) { await removeSource(params.id, src.id).catch(() => {}); throw e; }
+  const t0 = Date.now();
+  try { await saveFile(params.id, rel, body.pipe(limit)); slog('upload', 'saved', { project: params.id, ext: rel.split('.').pop(), bytes, ms: Date.now() - t0 }); }
+  catch (e: any) { slog('upload', 'failed', { project: params.id, ext: rel.split('.').pop(), bytes, declared: Number(req.headers.get('content-length') || 0), ms: Date.now() - t0, err: `${e?.name || 'Error'}: ${String(e?.message || e).slice(0, 300)}`, status: e?.$metadata?.httpStatusCode }); await removeSource(params.id, src.id).catch(() => {}); throw e; }
   const jobs = u.searchParams.get('ingest') ? [(await startIngest(params.id, src.id, 'upload', name, { createdBy: user.id || null })).id] : [];
   return ok({ source: { id: src.id, label: name }, jobs });
 });

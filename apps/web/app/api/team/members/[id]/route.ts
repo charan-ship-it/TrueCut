@@ -4,9 +4,9 @@ import { requireOwner, HttpError } from '@/lib/auth';
 import { updateMember } from '@truecut/db';
 export const dynamic = 'force-dynamic';
 
-const Patch = z.object({ role: z.enum(['owner', 'member']).optional(), disabled: z.boolean().optional() }).strict();
+const Patch = z.object({ disabled: z.boolean() }).strict();
 
-/** Owners change a person's role or switch their access off and on. */
+/** Owners switch a person's access to this workspace off and on. Roles come from AIX Core. */
 export const PATCH = route(async (req: Request, ctx: { params: { id: string } }, u) => {
   await requireOwner(u);
   const b = await body(req, Patch);

@@ -30,7 +30,7 @@ const nextConfig = {
       { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
       { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
     ];
-    if (process.env.NODE_ENV === 'production' && (process.env.NEXTAUTH_URL || '').startsWith('https://')) h.push({ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' });
+    if (process.env.NODE_ENV === 'production' && !!process.env.RAILWAY_ENVIRONMENT_ID) h.push({ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' });
     return [{ source: '/:path*', headers: h }];
   },
   // workspace packages ship TypeScript source; Next compiles them

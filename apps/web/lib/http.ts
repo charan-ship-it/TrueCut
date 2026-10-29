@@ -10,7 +10,7 @@ export const fail = (message: string, status = 400, code?: string) => NextRespon
 
 const STATUS: Record<string, number> = { budget_exceeded: 402, missing_anthropic_key: 400, missing_elevenlabs_key: 400, invalid_key: 400, rate_limited: 429, overloaded: 503 };
 function onError(e: any) {
-  if (e instanceof HttpError) return fail(e.message, e.status);
+  if (e instanceof HttpError) return fail(e.message, e.status, e.code);
   if (e instanceof ZodError) return fail(`Invalid request: ${e.issues.slice(0, 3).map((i) => `${i.path.join('.') || 'body'} ${i.message}`).join('; ')}`, 400, 'invalid_request');
   if (e instanceof UserFacingError) return fail(e.message, STATUS[e.code] || 400, e.code);
   const m = e?.message || String(e);

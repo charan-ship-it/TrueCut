@@ -1,100 +1,60 @@
-// Sign-in: Google accounts from the team's domain(s), and/or a one-time link emailed to the address
-// (through Nylas, see lib/mailer.ts). Sessions are signed JWT cookies (no session table); every sign-in
-// upserts the user into the team workspace, so both ways land on the same account.
+// Sign-in is AIX Core's: one Clerk session shared across *.aiworkforce.md (people sign in on Core), checked
+// against Core's access gate on every request. TrueCut keeps no passwords, sessions or access table of its own.
+// Each Clerk organisation is a TrueCut workspace (workspace id = Clerk org id), created the first time one of
+// its members arrives.
 //
-//   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET   OAuth client (Google Cloud console → Credentials)
-//   NYLAS_API_KEY + NYLAS_SEND_DOMAIN or NYLAS_GRANT_ID   turns on email links (see lib/mailer.ts)
-//   NEXTAUTH_SECRET                           random string that signs the session cookie
-//   NEXTAUTH_URL                              the public URL, e.g. https://truecut.up.railway.app
-//   ALLOWED_EMAIL_DOMAINS                     e.g. aixccelerate.com (comma-separated)
-//   ALLOWED_EMAILS                            extra individual addresses (optional)
+//   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY / CLERK_SECRET_KEY   Core's Clerk app (same on every AIX agent)
+//   CLERK_SIGN_IN_URL                                      Core's login page, e.g. https://app-staging.aiworkforce.md/login
+//   AIX_CORE_API_URL                                       Core's API, see lib/core.ts
 //
-// On your own machine without GOOGLE_CLIENT_ID, sign-in is off and everyone is the "Local" user.
-import type { NextAuthOptions } from 'next-auth';
-import { getServerSession } from 'next-auth';
-import GoogleProvider from 'next-auth/providers/google';
-import CredentialsProvider from 'next-auth/providers/credentials';
+// On your own machine without Clerk keys, sign-in is off and everyone is the "Local" user.
+import { auth, clerkClient } from '@clerk/nextjs/server';
 import { env, loadEnv } from '@truecut/config';
-import { consumeEmailToken, upsertUser, isMember, projectMeta, memberRole, userForToken, isInvited, memberStatus, getUserByEmail, DEFAULT_WORKSPACE_ID, type SessionUser } from '@truecut/db';
+import { mirrorCoreIdentity, isMember, projectMeta, memberRole, userForToken, memberStatus, DEFAULT_WORKSPACE_ID, type SessionUser } from '@truecut/db';
+import { CoreError, orgFromClaims, requireCoreAccess, workspaceRole } from './core';
 
 loadEnv();
 
-const list = (v: string) => v.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-/** Sign-in is on when Google is configured, on Railway, or in the Docker image (TRUECUT_AUTH=required),
- *  even before Google is set up (then nobody gets in). TRUECUT_AUTH=off turns it off. */
-export const authEnabled = () => env('TRUECUT_AUTH') !== 'off' && (!!env('GOOGLE_CLIENT_ID') || env('TRUECUT_AUTH') === 'required' || !!env('RAILWAY_ENVIRONMENT_ID'));
+/** Sign-in is on when Clerk is configured, on Railway, or in the Docker image (TRUECUT_AUTH=required), even
+ *  before Clerk is set up (then nobody gets in). TRUECUT_AUTH=off turns it off. */
+export const authEnabled = () => env('TRUECUT_AUTH') !== 'off' && (!!env('CLERK_SECRET_KEY') || env('TRUECUT_AUTH') === 'required' || !!env('RAILWAY_ENVIRONMENT_ID'));
 
-/** The server's allowlist (domains and addresses set in the environment). */
-export function emailAllowedByEnv(email?: string | null) {
-  if (!email) return false;
-  const e = email.toLowerCase(); const domains = list(env('ALLOWED_EMAIL_DOMAINS')); const emails = list(env('ALLOWED_EMAILS'));
-  return emails.includes(e) || domains.includes(e.split('@')[1] || '');
-}
-/** May this address sign in: on the server's allowlist, or invited by an owner from Settings → Team. Fails closed. */
-export async function emailAllowed(email?: string | null) {
-  if (!email) return false;
-  if (emailAllowedByEnv(email)) return true;
-  return isInvited(email).catch(() => false);
-}
+export class HttpError extends Error { constructor(public status: number, message: string, public code?: string) { super(message); } }
 
-export const authOptions: NextAuthOptions = {
-  secret: env('NEXTAUTH_SECRET') || env('AUTH_SECRET') || undefined,
-  session: { strategy: 'jwt', maxAge: 30 * 24 * 3600 },
-  pages: { signIn: '/signin', error: '/signin' },
-  providers: [
-    ...(env('GOOGLE_CLIENT_ID') ? [GoogleProvider({
-      clientId: env('GOOGLE_CLIENT_ID'), clientSecret: env('GOOGLE_CLIENT_SECRET'),
-      authorization: { params: { prompt: 'select_account', ...(list(env('ALLOWED_EMAIL_DOMAINS')).length === 1 ? { hd: list(env('ALLOWED_EMAIL_DOMAINS'))[0] } : {}) } },
-    })] : []),
-    // The emailed link opens /signin/verify, which posts the token here. Using it deletes it.
-    CredentialsProvider({
-      id: 'email-link', name: 'Email link',
-      credentials: { email: { type: 'email' }, token: { type: 'text' } },
-      async authorize(c) {
-        return verifyEmailLink(c?.email, c?.token);
-      },
-    }),
-  ],
-  callbacks: {
-    async signIn({ profile, user }) {
-      const verified = (profile as any)?.email_verified !== false;
-      const email = user?.email || profile?.email;
-      if (!verified || !(await emailAllowed(email))) return false;
-      const known = email ? await getUserByEmail(email).catch(() => null) : null;
-      if (known && (await memberStatus(known.id).catch(() => ({ disabled: false }))).disabled) return false; // switched off in Settings → Team
-      return true;
-    },
-    async jwt({ token, user }) {
-      if (user?.email) { const u = await upsertUser({ email: user.email, name: user.name, image: user.image }); token.uid = u.id; token.ws = DEFAULT_WORKSPACE_ID; token.name = u.name; token.picture = u.image; }
-      return token;
-    },
-    async session({ session, token }) {
-      (session as any).user = { ...(session.user || {}), id: token.uid, workspaceId: token.ws };
-      return session;
-    },
-  },
-};
+// Who a Clerk user is in our database. Names and pictures come from Clerk once per process, not per request.
+const known = new Map<string, { uid: string; email: string; name: string; image: string | null; orgId: string; role: 'owner' | 'member' }>();
 
-/** The user for a valid, unused sign-in link (the link is used up), else null. */
-export async function verifyEmailLink(email?: string | null, token?: string | null) {
-  if (!email || !token || !(await emailAllowed(email))) return null;
-  const owner = await consumeEmailToken(email, token);
-  return owner ? { id: owner, email: owner, name: null, image: null } : null;
+async function mirror(clerkUserId: string, orgId: string, role: 'owner' | 'member') {
+  const hit = known.get(clerkUserId);
+  if (hit && hit.orgId === orgId && hit.role === role) return hit;
+  const clerk = await clerkClient();
+  const [cu, org] = await Promise.all([clerk.users.getUser(clerkUserId), clerk.organizations.getOrganization({ organizationId: orgId }).catch(() => null)]);
+  const email = (cu.primaryEmailAddress?.emailAddress || cu.emailAddresses[0]?.emailAddress || '').toLowerCase();
+  if (!email) throw new HttpError(401, 'Your AIX account has no email address.');
+  const name = [cu.firstName, cu.lastName].filter(Boolean).join(' ');
+  const u = await mirrorCoreIdentity({ email, name, image: cu.imageUrl, workspaceId: orgId, workspaceName: org?.name, role });
+  const v = { uid: u.id, email: u.email, name: u.name, image: u.image ?? null, orgId, role };
+  known.set(clerkUserId, v);
+  return v;
 }
 
 const LOCAL: SessionUser & { workspaceId: string } = { id: '', email: 'local@truecut', name: 'Local', image: null, workspaceId: DEFAULT_WORKSPACE_ID };
 
-/** The signed-in user, or null. With sign-in off, the local user. */
+/** The signed-in, entitled user, or null when there is no session. Throws HttpError when someone is signed in but
+ *  cannot use TrueCut (no organisation, no access, Core unreachable). With sign-in off, the local user. */
 export async function currentUser(): Promise<(SessionUser & { workspaceId: string }) | null> {
   if (!authEnabled()) return LOCAL;
-  const s: any = await getServerSession(authOptions);
-  if (!s?.user?.id) return null;
-  const ws = s.user.workspaceId || DEFAULT_WORKSPACE_ID;
-  if ((await memberStatus(s.user.id, ws).catch(() => ({ disabled: false }))).disabled) return null; // switched off by an owner (Settings → Team)
-  return { id: s.user.id, email: s.user.email, name: s.user.name || '', image: s.user.image || null, workspaceId: ws };
+  const a = await auth();
+  if (!a.userId) return null;
+  const { orgId, role } = orgFromClaims({ ...(a.sessionClaims || {}), ...(a.orgId ? { org_id: a.orgId } : {}), ...(a.orgRole ? { org_role: a.orgRole } : {}) });
+  if (!orgId || !role) throw new HttpError(403, 'Open TrueCut from your AIX Core dashboard so it knows which organisation you are working in.', 'no_org');
+  const token = await a.getToken();
+  if (!token) return null;
+  try { await requireCoreAccess(a.userId, token); } catch (e) { if (e instanceof CoreError) throw new HttpError(e.status, e.message, e.code); throw e; }
+  const m = await mirror(a.userId, orgId, workspaceRole(role));
+  if ((await memberStatus(m.uid, orgId).catch(() => ({ disabled: false }))).disabled) throw new HttpError(403, 'Your access to TrueCut was switched off by a workspace owner.', 'switched_off');
+  return { id: m.uid, email: m.email, name: m.name, image: m.image, workspaceId: orgId };
 }
-
-export class HttpError extends Error { constructor(public status: number, message: string) { super(message); } }
 
 export async function requireUser() {
   const u = await currentUser();
@@ -126,8 +86,9 @@ export async function userFromBearer(req: Request) {
   const m = h.match(/^Bearer\s+(tc_[A-Za-z0-9_-]{20,})$/);
   if (!m) return null;
   const u = await userForToken(m[1]);
-  // someone whose address is no longer allowed loses token access too
   if (!u) return null;
-  if (authEnabled() && (!(await emailAllowed(u.email)) || (await memberStatus(u.id, u.workspaceId).catch(() => ({ disabled: false }))).disabled)) return null;
+  // someone switched off in Settings → Team loses token access too. (Core is not asked here: a token has no
+  // Core session to forward, so removing a person from their organisation in Core does not revoke it.)
+  if (authEnabled() && (await memberStatus(u.id, u.workspaceId).catch(() => ({ disabled: false }))).disabled) return null;
   return u;
 }

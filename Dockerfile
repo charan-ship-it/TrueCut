@@ -23,6 +23,11 @@ COPY packages/storage/package.json packages/storage/
 RUN npm ci --include=dev --no-audit --no-fund
 
 COPY . .
+# Next bakes NEXT_PUBLIC_* into the browser bundle at build time, so Railway must hand these over as build args.
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+ARG NEXT_PUBLIC_CORE_APP_URL
+ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY \
+    NEXT_PUBLIC_CORE_APP_URL=$NEXT_PUBLIC_CORE_APP_URL
 RUN npm run build && mkdir -p /data
 
 COPY docker/entrypoint.sh /usr/local/bin/truecut

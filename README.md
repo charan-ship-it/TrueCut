@@ -22,7 +22,7 @@ npm run setup          # deps, headless Chromium, .env.local, database, demo pro
 npm run dev            # → http://localhost:3100
 ```
 
-Locally everything runs in one process and files stay in `data/`. Sign-in is off until you set the Google keys.
+Locally everything runs in one process and files stay in `data/`. Sign-in is off until you set the Clerk keys.
 The full guide, including running the worker and a bucket locally, is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ### Keys (`.env.local`)
@@ -49,7 +49,7 @@ Every setting is listed in [.env.example](.env.example).
 
 ### For the team (hosted)
 
-TrueCut runs on Railway as two services from one image: **web** (UI + API) and **worker** (Nick turns, transcription, voice, renders), with Postgres for data and the job queue and a bucket for files. Team members sign in with their Google work account.
+TrueCut runs on Railway as two services from one image: **web** (UI + API) and **worker** (Nick turns, transcription, voice, renders), with Postgres for data and the job queue and a bucket for files. Team members sign in through AIX Core and TrueCut checks Core's access gate.
 Step-by-step: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
@@ -101,7 +101,7 @@ npm test                 # unit + integration tests (uses a local truecut_test d
 
 ```
 apps/
-  web/          Next.js app: chat UI, Library, Settings, API routes, Google sign-in
+  web/          Next.js app: chat UI, Library, Settings, API routes, AIX Core sign-in
   worker/       background job runner (pg-boss consumer)
   extension/    TrueCut Capture for Chrome (Manifest V3, no build step)
 packages/

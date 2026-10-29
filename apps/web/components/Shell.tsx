@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { api, fileUrl, timeAgo } from './api';
 import { I, TrueCutMark } from './icons';
 import { DIRECTIONS } from '@truecut/engine/styles.js';
-import { signOut } from 'next-auth/react';
+import { useClerk } from '@clerk/nextjs';
 
 type Row = { id: string; name: string; stage: string; updatedAt: string; scenes: number; renders: number; thumb: string | null; video: string | null; style: string; favorite: boolean; busy: boolean; length: number; last: string; creator?: { name: string; image?: string | null } | null };
 type Me = { user: { id: string; name: string; email: string; image?: string | null }; auth: boolean; local?: boolean; role?: string; keys?: { anthropic?: string; elevenlabs?: string } };
@@ -14,20 +14,20 @@ export const useShared = () => useContext(Shared);
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
-  if (path === '/signin' || path?.startsWith('/signin/')) return <>{children}</>;
   return <App>{children}</App>;
 }
 
 function App({ children }: { children: React.ReactNode }) {
   const path = usePathname(); const r = useRouter();
   const [me, setMe] = useState<Me | null>(null);
+  const [blocked, setBlocked] = useState<{ message: string } | null>(null);
   const [projects, setProjects] = useState<Row[] | null>(null);
   const [health, setHealth] = useState<any>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [q, setQ] = useState('');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const refresh = () => api('/api/projects').then(setProjects).catch(() => setProjects([]));
-  useEffect(() => { const load = () => api('/api/me').then(setMe).catch(() => {}); load(); window.addEventListener('tc-me', load); return () => window.removeEventListener('tc-me', load); }, []);
+  useEffect(() => { const load = () => api('/api/me').then((m) => { setMe(m); setBlocked(null); }).catch((e) => { if (BLOCKED.has(e.code)) setBlocked({ message: e.message }); }); load(); window.addEventListener('tc-me', load); return () => window.removeEventListener('tc-me', load); }, []);
   useEffect(() => { refresh(); api('/api/health').then(setHealth).catch(() => {}); try { const t = localStorage.getItem('nm-theme') as any; if (t) setTheme(t); setCollapsed(localStorage.getItem('nm-side') === '1'); } catch {} }, []);
   useEffect(() => { const busy = projects?.some((p) => p.busy); const t = setInterval(refresh, busy ? 2500 : 10000); return () => clearInterval(t); }, [projects]);
   useEffect(() => { refresh(); }, [path]);
@@ -48,6 +48,7 @@ function App({ children }: { children: React.ReactNode }) {
   // AI and Voice follow the keys this person's jobs will use (personal, workspace or server)
   const ready = (id: string) => (id === 'anthropic' ? (me?.keys ? me.keys.anthropic !== 'none' : chk(id)?.ok) : id === 'eleven' ? (me?.keys ? me.keys.elevenlabs !== 'none' : chk(id)?.ok) : chk(id)?.ok);
 
+  if (blocked) return <Blocked message={blocked.message} />;
   return (
     <Shared.Provider value={{ projects, refresh, health, me }}>
       <div className={`app ${collapsed ? 'collapsed' : ''}`}>
@@ -88,7 +89,7 @@ function App({ children }: { children: React.ReactNode }) {
             {me?.auth && <div className="whoami hide-c" title={me.user.email}>
               {me.user.image ? <img src={me.user.image} alt="" referrerPolicy="no-referrer" /> : <span className="av">{(me.user.name || me.user.email)[0]?.toUpperCase()}</span>}
               <span className="grow ell xs">{me.user.name || me.user.email}</span>
-              <button className="btn ghost sm" onClick={() => signOut({ callbackUrl: '/signin' })}>Sign out</button>
+              <SignOut />
             </div>}
             <Link href="/settings" className={`navbtn ${path.startsWith('/settings') ? 'on' : ''}`} title="Settings"><I.gear /><span className="hide-c">Settings</span></Link>
             <button className="navbtn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Toggle theme">{theme === 'dark' ? <I.sun /> : <I.moon />}<span className="hide-c">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span></button>
@@ -100,4 +101,18 @@ function App({ children }: { children: React.ReactNode }) {
     </Shared.Provider>
   );
 }
+const BLOCKED = new Set(['no_agent_access', 'no_org', 'switched_off', 'not_in_catalog']);
+/** Signed in through AIX Core but not allowed in (not enabled for the organisation, no organisation chosen, switched off). */
+function Blocked({ message }: { message: string }) {
+  const core = (process.env.NEXT_PUBLIC_CORE_APP_URL || '').replace(/\/$/, '');
+  return (
+    <div className="signin"><div className="signin-card">
+      <TrueCutMark size={44} /><h1 className="serif">TrueCut</h1>
+      <p className="muted">{message}</p>
+      {core && <a className="btn primary" href={core}>Open AIX Core</a>}
+    </div></div>
+  );
+}
+/** Only rendered when sign-in is on, which is when the Clerk provider is mounted. */
+function SignOut() { const { signOut } = useClerk(); return <button className="btn ghost sm" onClick={() => signOut({ redirectUrl: '/' })}>Sign out</button>; }
 export const stageLabel = (s: string) => ({ sources: 'Reading', facts: 'Facts ready', questions: 'Waiting on you', storyboard: 'Storyboard', voice: 'Voicing', render: 'Ready to render', done: 'Rendered' } as any)[s] || s;

@@ -1,6 +1,6 @@
 # 0004: Google sign-in for the team
 
-**Status:** accepted, October 2026
+**Status:** superseded by [0005](0005-aix-core-auth.md), October 2026
 
 ## Context
 

@@ -2,7 +2,7 @@
 
 ## Done (v0.3)
 
-- **Hosted multi-user:** Google sign-in for the team, Postgres, a job queue with a separate render worker, and bucket storage. See [DEPLOYMENT.md](DEPLOYMENT.md).
+- **Hosted multi-user:** AIX Core sign-in (Clerk session plus Core's access gate), Postgres, a job queue with a separate render worker, and bucket storage. See [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Next (v0.2)
 

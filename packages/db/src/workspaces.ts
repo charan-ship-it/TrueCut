@@ -43,6 +43,19 @@ export async function upsertUser(u: { email: string; name?: string | null; image
   return { id: row.id, email: row.email, name: row.name, image: row.image };
 }
 
+/** First sight of a person signed in through AIX Core: makes sure their organisation exists as a workspace
+ *  (the workspace id is the Clerk org id) and that they belong to it. Core is the authority on roles, so the
+ *  role follows what Core says on every call; `disabled` (switched off in Settings → Team) is left alone. */
+export async function mirrorCoreIdentity(i: { email: string; name?: string | null; image?: string | null; workspaceId: string; workspaceName?: string | null; role: 'owner' | 'member' }): Promise<SessionUser & { workspaceId: string }> {
+  await db().insert(workspaces).values({ id: i.workspaceId, name: i.workspaceName || i.workspaceId, slug: i.workspaceId.toLowerCase() }).onConflictDoNothing();
+  const email = i.email.toLowerCase();
+  const [row] = await db().insert(users).values({ id: 'u_' + newId(), email, name: i.name || nameFromEmail(email), image: i.image || null })
+    .onConflictDoUpdate({ target: users.email, set: { image: i.image ? i.image : sql`${users.image}`, lastSeenAt: new Date() } }).returning();
+  await db().insert(memberships).values({ workspaceId: i.workspaceId, userId: row.id, role: i.role })
+    .onConflictDoUpdate({ target: [memberships.workspaceId, memberships.userId], set: { role: i.role } });
+  return { id: row.id, email: row.email, name: row.name, image: row.image, workspaceId: i.workspaceId };
+}
+
 export async function getUser(id: string) { const [u] = await db().select().from(users).where(eq(users.id, id)).limit(1); return u || null; }
 /** The person's own display name (Settings → Profile). */
 export async function setUserName(id: string, name: string) {

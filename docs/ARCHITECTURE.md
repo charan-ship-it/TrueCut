@@ -3,7 +3,7 @@
 ## Overview
 
 ```
- browser ──► apps/web (Next.js 14: UI + API, Google sign-in)
+ browser ──► apps/web (Next.js 14: UI + API, AIX Core sign-in)
                │  writes project changes + job rows          reads/serves files
                ▼                                                   ▲
             Postgres ── projects (jsonb document), users,          │

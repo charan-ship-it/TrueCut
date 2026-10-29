@@ -4,7 +4,7 @@ export async function api<T = any>(url: string, opts: RequestInit & { json?: any
   if (opts.json !== undefined) { init.body = JSON.stringify(opts.json); init.headers = { 'content-type': 'application/json', ...(opts.headers || {}) }; init.method = opts.method || 'POST'; }
   const r = await fetch(url, init);
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  if (!r.ok) throw Object.assign(new Error(j.error || `HTTP ${r.status}`), { code: j.code as string | undefined });
   return j as T;
 }
 export const fileUrl = (pid: string, rel: string) => `/api/files/${pid}/${rel}`;

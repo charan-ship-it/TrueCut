@@ -49,9 +49,8 @@ and add the `S3_*` values from `docker-compose.yml` to `.env.local`. Give the we
 
 ### Sign-in locally
 
-Sign-in is off unless `GOOGLE_CLIENT_ID` is set, and everyone is the "Local" user. To test it, create an OAuth client
-(see [DEPLOYMENT.md](DEPLOYMENT.md#3-google-sign-in)) with the redirect URI `http://localhost:3100/api/auth/callback/google`
-and set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL=http://localhost:3100` and `ALLOWED_EMAIL_DOMAINS`.
+Sign-in is off unless `CLERK_SECRET_KEY` is set, and everyone is the "Local" user. To test the AIX Core flow, put the **staging** Clerk values and `AIX_CORE_API_URL=https://api-staging.aiworkforce.md` in `.env.local` (never run Core locally; see [DEPLOYMENT.md](DEPLOYMENT.md#3-connect-to-aix-core)). Core's login then has to send you back to a URL it allows, so for day-to-day work leave sign-in off.
+
 
 ### The Chrome extension
 

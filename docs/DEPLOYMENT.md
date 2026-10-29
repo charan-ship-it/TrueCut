@@ -77,6 +77,7 @@ No Redis, no volume and no separate frontend service are needed.
 | `CLERK_SIGN_UP_URL` | Core's sign-up page (step 3) |
 | `AIX_CORE_API_URL` | Core's API (step 3) |
 | `NEXT_PUBLIC_CORE_APP_URL` | Core's app URL (step 3). Also a build arg |
+| `CLERK_ENCRYPTION_KEY` | a random value for this environment: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Required: without it the first sign-in from Core bounced back to Core's dashboard. It is per environment and does not need to match Core's or Nick's |
 | `TRUECUT_ENCRYPTION_KEY` | the second random secret (encrypts API keys people save in Settings) |
 
 `ANTHROPIC_API_KEY` and `ELEVENLABS_API_KEY` are the server's fallback keys. You can leave them out and have an owner add a workspace key in **Settings → API keys** instead (people can also add personal keys); jobs use personal, then workspace, then server keys.
@@ -185,6 +186,7 @@ That copies every project into Postgres and uploads its files to the bucket. Use
 
 | Symptom | Look at |
 |---|---|
+| Opening TrueCut from Core lands back on Core's dashboard | `CLERK_ENCRYPTION_KEY` on web; TrueCut's origin in Core's allowed-origins and redirect-origins lists |
 | Signed-out visitors aren't sent to Core | `CLERK_SIGN_IN_URL` and the Clerk keys on web; the publishable key must be a Docker build arg too |
 | "TrueCut is not registered in the AIX Core catalog yet" | Core catalog step 2 above (slug exactly `truecut`) |
 | "You don’t have access to TrueCut" | the organisation isn't enabled (step 3), or a member isn't assigned in Core |
@@ -215,7 +217,7 @@ That copies every project into Postgres and uploads its files to the bucket. Use
 | `TRUECUT_ENCRYPTION_KEY` / `_PREVIOUS` | both | unset = can't save keys | encrypts API keys saved in Settings |
 | `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY` | both | unset | server fallback keys |
 | `TRUECUT_MODEL`, `TRUECUT_CREATIVE_MODEL`, `TRUECUT_VISION_MODEL` | both | `claude-opus-5-5` | defaults before an owner picks models in Settings |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (also a build arg), `CLERK_SECRET_KEY`, `CLERK_SIGN_IN_URL`, `CLERK_SIGN_UP_URL` | web | required hosted | Core's Clerk session |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (also a build arg), `CLERK_SECRET_KEY`, `CLERK_ENCRYPTION_KEY`, `CLERK_SIGN_IN_URL`, `CLERK_SIGN_UP_URL` | web | required hosted | Core's Clerk session |
 | `AIX_CORE_API_URL`, `NEXT_PUBLIC_CORE_APP_URL` (also a build arg) | web | required hosted | Core's access check and the "Open AIX Core" link |
 | `TRUECUT_WORKSPACE_NAME` | web | `AI Xccelerate` | the laptop workspace's name (hosted workspaces are Core organisations) |
 | `TRUECUT_RENDER_SLOTS`, `TRUECUT_WORKER_CONCURRENCY`, `TRUECUT_WORKERS` | worker | 1, 3, auto | throughput per worker |
